@@ -12,6 +12,7 @@ import com.datastax.driver.core.PreparedStatement;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
+import com.datastax.driver.core.exceptions.NoHostAvailableException;
 
 /**
  * Cassandra utility class.
@@ -57,6 +58,9 @@ public class CassandraUtils {
      * @param cluster
      * @param keyspace
      * @return
+     * @throws NoHostAvailableException
+     * @throws AuthenticationException
+     * @throws IllegalStateException
      */
     public static Session newSession(Cluster cluster, String keyspace) {
         Session session = cluster.connect(keyspace);

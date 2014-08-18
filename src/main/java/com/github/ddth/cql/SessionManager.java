@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 
 import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.Session;
+import com.datastax.driver.core.exceptions.NoHostAvailableException;
 import com.github.ddth.cql.internal.ClusterIdentifier;
 import com.github.ddth.cql.internal.SessionIdentifier;
 import com.google.common.cache.CacheBuilder;
@@ -155,6 +156,8 @@ public class SessionManager {
      * @param password
      * @param keyspace
      * @return
+     * @throws NoHostAvailableException
+     * @throws AuthenticationException
      */
     public Session getSession(final String hostsAndPorts, final String username,
             final String password, final String keyspace) {
@@ -162,7 +165,12 @@ public class SessionManager {
         try {
             return sessionCache.get(key).get(key);
         } catch (ExecutionException e) {
-            throw new RuntimeException(e);
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException) {
+                throw (RuntimeException) cause;
+            } else {
+                throw new RuntimeException(e);
+            }
         }
     }
 }
