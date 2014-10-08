@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 
 import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.Session;
+import com.datastax.driver.core.exceptions.AuthenticationException;
 import com.datastax.driver.core.exceptions.NoHostAvailableException;
 import com.github.ddth.cql.internal.ClusterIdentifier;
 import com.github.ddth.cql.internal.SessionIdentifier;
@@ -26,16 +27,6 @@ import com.google.common.cache.RemovalNotification;
 public class SessionManager {
 
     private Logger LOGGER = LoggerFactory.getLogger(SessionManager.class);
-    private static SessionManager instance = new SessionManager();
-
-    /**
-     * Static method to obtain a {@link SessionManager} instance.
-     * 
-     * @return
-     */
-    public static SessionManager getInstance() {
-        return instance;
-    }
 
     private LoadingCache<ClusterIdentifier, Cluster> clusterCache = CacheBuilder.newBuilder()
             .expireAfterAccess(3600, TimeUnit.SECONDS)
@@ -53,7 +44,7 @@ public class SessionManager {
             }).build(new CacheLoader<ClusterIdentifier, Cluster>() {
                 @Override
                 public Cluster load(ClusterIdentifier key) throws Exception {
-                    return CassandraUtils.newCluster(key.hostsAndPorts, key.username, key.password);
+                    return CqlUtils.newCluster(key.hostsAndPorts, key.username, key.password);
                 }
             });
 
@@ -99,7 +90,7 @@ public class SessionManager {
                                 @Override
                                 public Session load(SessionIdentifier sessionKey) throws Exception {
                                     Cluster cluster = clusterCache.get(sessionKey);
-                                    return CassandraUtils.newSession(cluster, sessionKey.keyspace);
+                                    return CqlUtils.newSession(cluster, sessionKey.keyspace);
                                 }
 
                             });

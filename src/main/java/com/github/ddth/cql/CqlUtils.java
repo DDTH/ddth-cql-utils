@@ -3,6 +3,9 @@ package com.github.ddth.cql;
 import java.net.InetSocketAddress;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -12,15 +15,23 @@ import com.datastax.driver.core.PreparedStatement;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
+import com.datastax.driver.core.exceptions.AuthenticationException;
 import com.datastax.driver.core.exceptions.NoHostAvailableException;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
+import com.google.common.cache.RemovalListener;
+import com.google.common.cache.RemovalNotification;
 
 /**
  * Cassandra utility class.
  * 
  * @author Thanh Nguyen <btnguyen2k@gmail.com>
  * @since 0.1.0
+ * @since 0.2.0 renamed to CqlUtils
  */
-public class CassandraUtils {
+public class CqlUtils {
     public final static int DEFAULT_CASSANDRA_PORT = 9042;
 
     /**
@@ -67,6 +78,47 @@ public class CassandraUtils {
         return session;
     }
 
+    /*----------------------------------------------------------------------*/
+    private static LoadingCache<Session, Cache<String, PreparedStatement>> cachePreparedStms = CacheBuilder
+            .newBuilder().expireAfterAccess(3600, TimeUnit.SECONDS)
+            .removalListener(new RemovalListener<Session, Cache<String, PreparedStatement>>() {
+                @Override
+                public void onRemoval(
+                        RemovalNotification<Session, Cache<String, PreparedStatement>> notification) {
+                    notification.getValue().invalidateAll();
+                }
+            }).build(new CacheLoader<Session, Cache<String, PreparedStatement>>() {
+                @Override
+                public Cache<String, PreparedStatement> load(final Session session)
+                        throws Exception {
+                    Cache<String, PreparedStatement> _cache = CacheBuilder.newBuilder()
+                            .expireAfterAccess(3600, TimeUnit.SECONDS).build();
+                    return _cache;
+                }
+            });
+
+    /**
+     * Prepares a CQL query.
+     * 
+     * @param session
+     * @param cql
+     * @return
+     * @since 0.2.0
+     */
+    public static PreparedStatement prepareStatement(final Session session, final String cql) {
+        try {
+            Cache<String, PreparedStatement> _cache = cachePreparedStms.get(session);
+            return _cache.get(cql, new Callable<PreparedStatement>() {
+                @Override
+                public PreparedStatement call() throws Exception {
+                    return session.prepare(cql);
+                }
+            });
+        } catch (ExecutionException e) {
+            throw new RuntimeException(e.getCause());
+        }
+    }
+
     /**
      * Executes a non-SELECT query.
      * 
@@ -75,7 +127,7 @@ public class CassandraUtils {
      * @param bindValues
      */
     public static void executeNonSelect(Session session, String cql, Object... bindValues) {
-        executeNonSelect(session, session.prepare(cql), bindValues);
+        executeNonSelect(session, prepareStatement(session, cql), bindValues);
     }
 
     /**
@@ -103,7 +155,7 @@ public class CassandraUtils {
      * @return
      */
     public static ResultSet execute(Session session, String cql, Object... bindValues) {
-        return execute(session, session.prepare(cql), bindValues);
+        return execute(session, prepareStatement(session, cql), bindValues);
     }
 
     /**
@@ -131,7 +183,7 @@ public class CassandraUtils {
      * @return
      */
     public static Row executeOne(Session session, String cql, Object... bindValues) {
-        return executeOne(session, session.prepare(cql), bindValues);
+        return executeOne(session, prepareStatement(session, cql), bindValues);
     }
 
     /**

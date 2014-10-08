@@ -2,6 +2,7 @@ package com.github.ddth.cql.qnd;
 
 import com.datastax.driver.core.PreparedStatement;
 import com.datastax.driver.core.Session;
+import com.github.ddth.cql.CqlUtils;
 import com.github.ddth.cql.SessionManager;
 
 public class QndPreparedStatement {
@@ -19,9 +20,9 @@ public class QndPreparedStatement {
         Session session3 = sm.getSession("localhost", null, null, "demo");
         System.out.println(session3);
 
-        PreparedStatement pstm1 = session1.prepare("select * from tbl1");
-        PreparedStatement pstm2 = session1.prepare("select * from tbl1");
-        PreparedStatement pstm3 = session1.prepare("select * from tbl1");
+        PreparedStatement pstm1 = CqlUtils.prepareStatement(session1, "select * from tbl1");
+        PreparedStatement pstm2 = CqlUtils.prepareStatement(session1, "select * from tbl1");
+        PreparedStatement pstm3 = CqlUtils.prepareStatement(session1, "select * from tbl1");
 
         sm.destroy();
     }
