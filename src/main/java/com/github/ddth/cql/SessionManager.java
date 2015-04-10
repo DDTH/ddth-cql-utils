@@ -89,8 +89,20 @@ public class SessionManager {
                             }).build(new CacheLoader<SessionIdentifier, Session>() {
                                 @Override
                                 public Session load(SessionIdentifier sessionKey) throws Exception {
-                                    Cluster cluster = clusterCache.get(sessionKey);
-                                    return CqlUtils.newSession(cluster, sessionKey.keyspace);
+                                    try {
+                                        Cluster cluster = clusterCache.get(sessionKey);
+                                        return CqlUtils.newSession(cluster, sessionKey.keyspace);
+                                    } catch (IllegalStateException e) {
+                                        /*
+                                         * since v0.2.1: rebuild `Cluster` when
+                                         * `java.lang.IllegalStateException`
+                                         * occurred
+                                         */
+                                        LOGGER.warn(e.getMessage(), e);
+                                        clusterCache.invalidate(sessionKey);
+                                        Cluster cluster = clusterCache.get(sessionKey);
+                                        return CqlUtils.newSession(cluster, sessionKey.keyspace);
+                                    }
                                 }
 
                             });

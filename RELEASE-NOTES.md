@@ -1,6 +1,11 @@
 ddth-cql-utils release notes
 ============================
 
+0.2.1 - 2015-04-10
+------------------
+- Enhancement: rebuild `Cluster` when `java.lang.IllegalStateException` occurred.
+
+
 0.2.0.1 - 2014-10-09
 --------------------
 - Update POM parent to `com.github.ddth:ddth-parent:2`
