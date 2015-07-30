@@ -21,6 +21,35 @@ import com.google.common.cache.RemovalNotification;
 /**
  * Datastax's session manager.
  * 
+ * <p>
+ * Features:
+ * <ul>
+ * <li>Cache opened {@link Cluster}s.</li>
+ * <li>Cache opened {@link Session}s (per {@link Cluster}).</li>
+ * </ul>
+ * </p>
+ * 
+ * <p>
+ * Usage:
+ * <ul>
+ * <li>Create & initialize a {@link SessionManager} instance:<br/>
+ * &nbsp;&nbsp;&nbsp;&nbsp;
+ * {@code SessionManager sessionManager = new SessionManager().init();}</li>
+ * <li>Obtain a {@link Cluster}:<br/>
+ * &nbsp;&nbsp;&nbsp;&nbsp;
+ * {@code Cluster cluster = sessionManager.getCluster("host1:port1,host2:port2", "username", "password");}
+ * </li>
+ * <li>Obtain a {@link Session}:<br/>
+ * &nbsp;&nbsp;&nbsp;&nbsp;
+ * {@code Cluster cluster = sessionManager.getSession("host1:port1,host2:port2", "username", "password", "keyspace");}
+ * </li>
+ * <li>...do business work with the obtained {@link Cluster} or {@link Session}
+ * ...</li>
+ * <li>Before existing the application:<br/>
+ * &nbsp;&nbsp;&nbsp;&nbsp;{@code sessionManager.destroy();}</li>
+ * </ul>
+ * </p>
+ * 
  * @author Thanh Ba Nguyen <btnguyen2k@gmail.com>
  * @since 0.1.0
  */
@@ -110,7 +139,8 @@ public class SessionManager {
                 }
             });
 
-    public void init() {
+    public SessionManager init() {
+        return this;
     }
 
     public void destroy() {
@@ -154,6 +184,10 @@ public class SessionManager {
     /**
      * Obtains a Cassandra session instance.
      * 
+     * <p>
+     * The existing session instance will be returned if such existed.
+     * </p>
+     * 
      * @param hostsAndPorts
      * @param username
      * @param password
@@ -164,9 +198,33 @@ public class SessionManager {
      */
     public Session getSession(final String hostsAndPorts, final String username,
             final String password, final String keyspace) {
+        return getSession(hostsAndPorts, username, password, keyspace, false);
+    }
+
+    /**
+     * Obtains a Cassandra session instance.
+     * 
+     * @param hostsAndPorts
+     * @param username
+     * @param password
+     * @param keyspace
+     * @param forceNew
+     *            force create new session instance (and close the existing one,
+     *            if any)
+     * @return
+     * @throws NoHostAvailableException
+     * @throws AuthenticationException
+     * @since 0.2.2
+     */
+    public Session getSession(final String hostsAndPorts, final String username,
+            final String password, final String keyspace, final boolean forceNew) {
         SessionIdentifier key = new SessionIdentifier(hostsAndPorts, username, password, keyspace);
         try {
-            return sessionCache.get(key).get(key);
+            LoadingCache<SessionIdentifier, Session> cacheSessions = sessionCache.get(key);
+            if (forceNew) {
+                cacheSessions.invalidate(key);
+            }
+            return cacheSessions.get(key);
         } catch (ExecutionException e) {
             Throwable cause = e.getCause();
             if (cause instanceof RuntimeException) {

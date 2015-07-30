@@ -9,16 +9,9 @@ Project home:
 OSGi environment: `ddth-cql-utils` is packaged as an OSGi bundle.
 
 
-## License ##
-
-See LICENSE.txt for details. Copyright (c) 2014 Thanh Ba Nguyen.
-
-Third party libraries are distributed under their own licenses.
-
-
 ## Installation #
 
-Latest release version: `0.2.1`. See [RELEASE-NOTES.md](RELEASE-NOTES.md).
+Latest release version: `0.2.2`. See [RELEASE-NOTES.md](RELEASE-NOTES.md).
 
 Maven dependency:
 
@@ -26,7 +19,7 @@ Maven dependency:
 <dependency>
 	<groupId>com.github.ddth</groupId>
 	<artifactId>ddth-cql-utils</artifactId>
-	<version>0.2.1</version>
+	<version>0.2.2</version>
 </dependency>
 ```
 
@@ -53,3 +46,10 @@ sm.destroy(); //destroy the session manager when done
 ## Credits ##
 
 - [Datastax](http://www.datastax.com/download#dl-datastax-drivers) is the underlying Cassandra library. 
+
+
+## License ##
+
+See LICENSE.txt for details. Copyright (c) 2014-2015 Thanh Ba Nguyen.
+
+Third party libraries are distributed under their own licenses.

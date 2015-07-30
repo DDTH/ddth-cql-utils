@@ -11,6 +11,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import com.datastax.driver.core.BoundStatement;
 import com.datastax.driver.core.Cluster;
+import com.datastax.driver.core.ConsistencyLevel;
 import com.datastax.driver.core.PreparedStatement;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
@@ -134,6 +135,20 @@ public class CqlUtils {
      * Executes a non-SELECT query.
      * 
      * @param session
+     * @param cql
+     * @param consistencyLevel
+     * @param bindValues
+     * @since 0.2.2
+     */
+    public static void executeNonSelect(Session session, String cql,
+            ConsistencyLevel consistencyLevel, Object... bindValues) {
+        executeNonSelect(session, prepareStatement(session, cql), consistencyLevel, bindValues);
+    }
+
+    /**
+     * Executes a non-SELECT query.
+     * 
+     * @param session
      * @param stm
      * @param bindValues
      */
@@ -142,6 +157,27 @@ public class CqlUtils {
         BoundStatement bstm = stm.bind();
         if (bindValues != null && bindValues.length > 0) {
             bstm.bind(bindValues);
+        }
+        session.execute(bstm);
+    }
+
+    /**
+     * Executes a non-SELECT query.
+     * 
+     * @param session
+     * @param stm
+     * @param consistencyLevel
+     * @param bindValues
+     * @since 0.2.2
+     */
+    public static void executeNonSelect(Session session, PreparedStatement stm,
+            ConsistencyLevel consistencyLevel, Object... bindValues) {
+        BoundStatement bstm = stm.bind();
+        if (bindValues != null && bindValues.length > 0) {
+            bstm.bind(bindValues);
+        }
+        if (consistencyLevel != null) {
+            bstm.setConsistencyLevel(consistencyLevel);
         }
         session.execute(bstm);
     }
@@ -162,6 +198,21 @@ public class CqlUtils {
      * Executes a SELECT query and returns results.
      * 
      * @param session
+     * @param cql
+     * @param consistencyLevel
+     * @param bindValues
+     * @return
+     * @since 0.2.2
+     */
+    public static ResultSet execute(Session session, String cql, ConsistencyLevel consistencyLevel,
+            Object... bindValues) {
+        return execute(session, prepareStatement(session, cql), consistencyLevel, bindValues);
+    }
+
+    /**
+     * Executes a SELECT query and returns results.
+     * 
+     * @param session
      * @param stm
      * @param bindValues
      * @return
@@ -170,6 +221,28 @@ public class CqlUtils {
         BoundStatement bstm = stm.bind();
         if (bindValues != null && bindValues.length > 0) {
             bstm.bind(bindValues);
+        }
+        return session.execute(bstm);
+    }
+
+    /**
+     * Executes a SELECT query and returns results.
+     * 
+     * @param session
+     * @param stm
+     * @param consistencyLevel
+     * @param bindValues
+     * @return
+     * @since 0.2.2
+     */
+    public static ResultSet execute(Session session, PreparedStatement stm,
+            ConsistencyLevel consistencyLevel, Object... bindValues) {
+        BoundStatement bstm = stm.bind();
+        if (bindValues != null && bindValues.length > 0) {
+            bstm.bind(bindValues);
+        }
+        if (consistencyLevel != null) {
+            bstm.setConsistencyLevel(consistencyLevel);
         }
         return session.execute(bstm);
     }
@@ -190,11 +263,42 @@ public class CqlUtils {
      * Executes a SELECT query and returns just one row.
      * 
      * @param session
+     * @param cql
+     * @param consistencyLevel
+     * @param bindValues
+     * @return
+     * @since 0.2.2
+     */
+    public static Row executeOne(Session session, String cql, ConsistencyLevel consistencyLevel,
+            Object... bindValues) {
+        return executeOne(session, prepareStatement(session, cql), consistencyLevel, bindValues);
+    }
+
+    /**
+     * Executes a SELECT query and returns just one row.
+     * 
+     * @param session
      * @param stm
      * @param bindValues
      * @return
      */
     public static Row executeOne(Session session, PreparedStatement stm, Object... bindValues) {
+        ResultSet rs = execute(session, stm, bindValues);
+        return rs != null ? rs.one() : null;
+    }
+
+    /**
+     * Executes a SELECT query and returns just one row.
+     * 
+     * @param session
+     * @param stm
+     * @param consistencyLevel
+     * @param bindValues
+     * @return
+     * @since 0.2.2
+     */
+    public static Row executeOne(Session session, PreparedStatement stm,
+            ConsistencyLevel consistencyLevel, Object... bindValues) {
         ResultSet rs = execute(session, stm, bindValues);
         return rs != null ? rs.one() : null;
     }
