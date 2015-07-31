@@ -14,6 +14,7 @@ import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.ConsistencyLevel;
 import com.datastax.driver.core.PreparedStatement;
 import com.datastax.driver.core.ResultSet;
+import com.datastax.driver.core.ResultSetFuture;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.exceptions.AuthenticationException;
@@ -301,5 +302,144 @@ public class CqlUtils {
             ConsistencyLevel consistencyLevel, Object... bindValues) {
         ResultSet rs = execute(session, stm, bindValues);
         return rs != null ? rs.one() : null;
+    }
+
+    /*----------------------------------------------------------------------*/
+    /**
+     * Async-Executes a non-SELECT query.
+     * 
+     * @param session
+     * @param cql
+     * @param bindValues
+     * @return
+     * @since 0.2.3
+     */
+    public static ResultSetFuture executeNonSelectAsync(Session session, String cql,
+            Object... bindValues) {
+        return executeNonSelectAsync(session, prepareStatement(session, cql), bindValues);
+    }
+
+    /**
+     * Async-Executes a non-SELECT query.
+     * 
+     * @param session
+     * @param cql
+     * @param consistencyLevel
+     * @param bindValues
+     * @return
+     * @since 0.2.3
+     */
+    public static ResultSetFuture executeNonSelectAsync(Session session, String cql,
+            ConsistencyLevel consistencyLevel, Object... bindValues) {
+        return executeNonSelectAsync(session, prepareStatement(session, cql), consistencyLevel,
+                bindValues);
+    }
+
+    /**
+     * Async-Executes a non-SELECT query.
+     * 
+     * @param session
+     * @param stm
+     * @param bindValues
+     * @return
+     * @since 0.2.3
+     */
+    public static ResultSetFuture executeNonSelectAsync(Session session, PreparedStatement stm,
+            Object... bindValues) {
+        BoundStatement bstm = stm.bind();
+        if (bindValues != null && bindValues.length > 0) {
+            bstm.bind(bindValues);
+        }
+        return session.executeAsync(bstm);
+    }
+
+    /**
+     * Async-Executes a non-SELECT query.
+     * 
+     * @param session
+     * @param stm
+     * @param consistencyLevel
+     * @param bindValues
+     * @return
+     * @since 0.2.3
+     */
+    public static ResultSetFuture executeNonSelectAsync(Session session, PreparedStatement stm,
+            ConsistencyLevel consistencyLevel, Object... bindValues) {
+        BoundStatement bstm = stm.bind();
+        if (bindValues != null && bindValues.length > 0) {
+            bstm.bind(bindValues);
+        }
+        if (consistencyLevel != null) {
+            bstm.setConsistencyLevel(consistencyLevel);
+        }
+        return session.executeAsync(bstm);
+    }
+
+    /**
+     * Async-Executes a SELECT query and returns results.
+     * 
+     * @param session
+     * @param cql
+     * @param bindValues
+     * @return
+     * @since 0.2.3
+     */
+    public static ResultSetFuture executeAsync(Session session, String cql, Object... bindValues) {
+        return executeAsync(session, prepareStatement(session, cql), bindValues);
+    }
+
+    /**
+     * Async-Executes a SELECT query and returns results.
+     * 
+     * @param session
+     * @param cql
+     * @param consistencyLevel
+     * @param bindValues
+     * @return
+     * @since 0.2.3
+     */
+    public static ResultSetFuture executeAsync(Session session, String cql,
+            ConsistencyLevel consistencyLevel, Object... bindValues) {
+        return executeAsync(session, prepareStatement(session, cql), consistencyLevel, bindValues);
+    }
+
+    /**
+     * Async-Executes a SELECT query and returns results.
+     * 
+     * @param session
+     * @param stm
+     * @param bindValues
+     * @return
+     * @since 0.2.3
+     */
+    public static ResultSetFuture executeAsync(Session session, PreparedStatement stm,
+            Object... bindValues) {
+        BoundStatement bstm = stm.bind();
+        if (bindValues != null && bindValues.length > 0) {
+            bstm.bind(bindValues);
+        }
+        return session.executeAsync(bstm);
+    }
+
+    /**
+     * Async-Executes a SELECT query and returns results.
+     * 
+     * @param session
+     * @param stm
+     * @param consistencyLevel
+     * @param bindValues
+     * @return
+     * @since 0.2.3
+     */
+    public static ResultSetFuture executeAsync(Session session, PreparedStatement stm,
+            ConsistencyLevel consistencyLevel, Object... bindValues) {
+        BoundStatement bstm = stm.bind();
+        if (bindValues != null && bindValues.length > 0) {
+            bstm.bind(bindValues);
+        }
+        if (consistencyLevel != null) {
+            bstm.setConsistencyLevel(consistencyLevel);
+        }
+        return session.executeAsync(bstm);
     }
 }

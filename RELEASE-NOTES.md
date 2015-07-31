@@ -1,6 +1,12 @@
 ddth-cql-utils release notes
 ============================
 
+0.2.3 - 2015-07-31
+------------------
+
+- `CqlUtils`: new method(s) for async queries.
+
+
 0.2.2 - 2015-07-30
 ------------------
 
