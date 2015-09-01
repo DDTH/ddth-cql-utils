@@ -11,7 +11,7 @@ OSGi environment: `ddth-cql-utils` is packaged as an OSGi bundle.
 
 ## Installation #
 
-Latest release version: `0.2.3`. See [RELEASE-NOTES.md](RELEASE-NOTES.md).
+Latest release version: `0.2.4`. See [RELEASE-NOTES.md](RELEASE-NOTES.md).
 
 Maven dependency:
 
@@ -19,7 +19,7 @@ Maven dependency:
 <dependency>
 	<groupId>com.github.ddth</groupId>
 	<artifactId>ddth-cql-utils</artifactId>
-	<version>0.2.3</version>
+	<version>0.2.4</version>
 </dependency>
 ```
 

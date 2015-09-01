@@ -12,6 +12,8 @@ import org.apache.commons.lang3.StringUtils;
 import com.datastax.driver.core.BoundStatement;
 import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.ConsistencyLevel;
+import com.datastax.driver.core.HostDistance;
+import com.datastax.driver.core.PoolingOptions;
 import com.datastax.driver.core.PreparedStatement;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.ResultSetFuture;
@@ -19,6 +21,8 @@ import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.exceptions.AuthenticationException;
 import com.datastax.driver.core.exceptions.NoHostAvailableException;
+import com.datastax.driver.core.policies.ReconnectionPolicy;
+import com.datastax.driver.core.policies.RetryPolicy;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -47,6 +51,26 @@ public class CqlUtils {
      * @return
      */
     public static Cluster newCluster(String hostsAndPorts, String username, String password) {
+        return newCluster(hostsAndPorts, username, password, null, null, null);
+    }
+
+    /**
+     * Builds a new Cassandra cluster instance.
+     * 
+     * @param hostsAndPorts
+     *            format: "host1:port1,host2,host3:port3". If no port is
+     *            specified, the {@link #DEFAULT_CASSANDRA_PORT} is used.
+     * @param username
+     * @param password
+     * @param poolingOptions
+     * @param reconnectionPolicy
+     * @param retryPolicy
+     * @return
+     * @since 0.2.4
+     */
+    public static Cluster newCluster(String hostsAndPorts, String username, String password,
+            PoolingOptions poolingOptions, ReconnectionPolicy reconnectionPolicy,
+            RetryPolicy retryPolicy) {
         Cluster.Builder builder = Cluster.builder();
         if (!StringUtils.isBlank(username)) {
             builder = builder.withCredentials(username, password);
@@ -60,6 +84,24 @@ public class CqlUtils {
             contactPointsWithPorts.add(new InetSocketAddress(host, port));
         }
         builder = builder.addContactPointsWithPorts(contactPointsWithPorts);
+
+        if (poolingOptions == null) {
+            poolingOptions = new PoolingOptions();
+            poolingOptions.setCoreConnectionsPerHost(HostDistance.LOCAL, 2);
+            poolingOptions.setMaxConnectionsPerHost(HostDistance.LOCAL, 4);
+            poolingOptions.setCoreConnectionsPerHost(HostDistance.REMOTE, 1);
+            poolingOptions.setMaxConnectionsPerHost(HostDistance.REMOTE, 2);
+        }
+        builder.withPoolingOptions(poolingOptions);
+
+        if (reconnectionPolicy != null) {
+            builder.withReconnectionPolicy(reconnectionPolicy);
+        }
+
+        if (retryPolicy != null) {
+            builder.withRetryPolicy(retryPolicy);
+        }
+
         Cluster cluster = builder.build();
         return cluster;
     }

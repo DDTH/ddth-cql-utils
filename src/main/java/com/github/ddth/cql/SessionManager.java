@@ -7,9 +7,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.datastax.driver.core.Cluster;
+import com.datastax.driver.core.PoolingOptions;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.exceptions.AuthenticationException;
 import com.datastax.driver.core.exceptions.NoHostAvailableException;
+import com.datastax.driver.core.policies.ReconnectionPolicy;
+import com.datastax.driver.core.policies.RetryPolicy;
 import com.github.ddth.cql.internal.ClusterIdentifier;
 import com.github.ddth.cql.internal.SessionIdentifier;
 import com.google.common.cache.CacheBuilder;
@@ -57,6 +60,76 @@ public class SessionManager {
 
     private Logger LOGGER = LoggerFactory.getLogger(SessionManager.class);
 
+    private PoolingOptions poolingOptions;
+    private ReconnectionPolicy reconnectionPolicy;
+    private RetryPolicy retryPolicy;
+
+    /**
+     * Gets pooling options.
+     * 
+     * @return
+     * @since 0.2.4
+     */
+    public PoolingOptions getPoolingOptions() {
+        return poolingOptions;
+    }
+
+    /**
+     * Sets pooling options for new cluster instance.
+     * 
+     * @param poolingOptions
+     * @return
+     * @since 0.2.4
+     */
+    public SessionManager setPoolingOptions(PoolingOptions poolingOptions) {
+        this.poolingOptions = poolingOptions;
+        return this;
+    }
+
+    /**
+     * Gets reconnection policy
+     * 
+     * @return
+     * @since 0.2.4
+     */
+    public ReconnectionPolicy getReconnectionPolicy() {
+        return reconnectionPolicy;
+    }
+
+    /**
+     * Sets reconnection policy for new cluster instance.
+     * 
+     * @param reconnectionPolicy
+     * @return
+     * @since 0.2.4
+     */
+    public SessionManager setReconnectionPolicy(ReconnectionPolicy reconnectionPolicy) {
+        this.reconnectionPolicy = reconnectionPolicy;
+        return this;
+    }
+
+    /**
+     * Gets retry policy
+     * 
+     * @return
+     * @since 0.2.4
+     */
+    public RetryPolicy getRetryPolicy() {
+        return retryPolicy;
+    }
+
+    /**
+     * Sets retry policy for new cluster instance.
+     * 
+     * @param retryPolicy
+     * @return
+     * @since 0.2.4
+     */
+    public SessionManager setRetryPolicy(RetryPolicy retryPolicy) {
+        this.retryPolicy = retryPolicy;
+        return this;
+    }
+
     private LoadingCache<ClusterIdentifier, Cluster> clusterCache = CacheBuilder.newBuilder()
             .expireAfterAccess(3600, TimeUnit.SECONDS)
             .removalListener(new RemovalListener<ClusterIdentifier, Cluster>() {
@@ -73,7 +146,8 @@ public class SessionManager {
             }).build(new CacheLoader<ClusterIdentifier, Cluster>() {
                 @Override
                 public Cluster load(ClusterIdentifier key) throws Exception {
-                    return CqlUtils.newCluster(key.hostsAndPorts, key.username, key.password);
+                    return CqlUtils.newCluster(key.hostsAndPorts, key.username, key.password,
+                            poolingOptions, reconnectionPolicy, retryPolicy);
                 }
             });
 
@@ -176,7 +250,11 @@ public class SessionManager {
         try {
             cluster = clusterCache.get(key);
         } catch (ExecutionException e) {
-            throw new RuntimeException(e);
+            Throwable t = e.getCause();
+            if (t instanceof RuntimeException) {
+                throw (RuntimeException) t;
+            }
+            throw new RuntimeException(t);
         }
         return cluster;
     }
@@ -226,9 +304,9 @@ public class SessionManager {
             }
             return cacheSessions.get(key);
         } catch (ExecutionException e) {
-            Throwable cause = e.getCause();
-            if (cause instanceof RuntimeException) {
-                throw (RuntimeException) cause;
+            Throwable t = e.getCause();
+            if (t instanceof RuntimeException) {
+                throw (RuntimeException) t;
             } else {
                 throw new RuntimeException(e);
             }
