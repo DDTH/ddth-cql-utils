@@ -5,7 +5,7 @@ ddth-cql-utils release notes
 ------------------
 
 - Set default pooling options: 2/4 connections per local host, 1/2 connections per remote host.
-- Class `SessionManager`: new member `poolingOptions`.
+- Class `SessionManager`: new members `poolingOptions`, `reconnectionPolicy` and `retryPolicy`.
 
 
 0.2.3 - 2015-07-31
