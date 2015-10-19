@@ -9,9 +9,9 @@ Project home:
 OSGi environment: `ddth-cql-utils` is packaged as an OSGi bundle.
 
 
-## Installation #
+## Installation ##
 
-Latest release version: `0.2.5`. See [RELEASE-NOTES.md](RELEASE-NOTES.md).
+Latest release version: `0.2.6`. See [RELEASE-NOTES.md](RELEASE-NOTES.md).
 
 Maven dependency:
 
@@ -19,7 +19,7 @@ Maven dependency:
 <dependency>
 	<groupId>com.github.ddth</groupId>
 	<artifactId>ddth-cql-utils</artifactId>
-	<version>0.2.4</version>
+	<version>0.2.6</version>
 </dependency>
 ```
 
@@ -41,6 +41,10 @@ ResultSet rs = CassandraUtils.executeSelect(session, "SELECT * FROM table WHERE 
 
 sm.destroy(); //destroy the session manager when done
 ```
+
+### Notes ###
+
+- Do NOT cache `Session` instance(s), use `SessionManager.getSession(...)` instead.
 
 
 ## Credits ##

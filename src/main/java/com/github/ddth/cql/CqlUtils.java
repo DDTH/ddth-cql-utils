@@ -164,6 +164,17 @@ public class CqlUtils {
     }
 
     /**
+     * Makes sure the CQL is prepared by the correct Cluster.
+     * 
+     * @since 0.2.5
+     */
+    private static PreparedStatement ensurePrepareStatement(final Session session,
+            final PreparedStatement pstm) {
+        final String cql = pstm.getQueryString();
+        return prepareStatement(session, cql);
+    }
+
+    /**
      * Executes a non-SELECT query.
      * 
      * @param session
@@ -171,7 +182,7 @@ public class CqlUtils {
      * @param bindValues
      */
     public static void executeNonSelect(Session session, String cql, Object... bindValues) {
-        executeNonSelect(session, prepareStatement(session, cql), bindValues);
+        _executeNonSelect(session, prepareStatement(session, cql), bindValues);
     }
 
     /**
@@ -185,7 +196,7 @@ public class CqlUtils {
      */
     public static void executeNonSelect(Session session, String cql,
             ConsistencyLevel consistencyLevel, Object... bindValues) {
-        executeNonSelect(session, prepareStatement(session, cql), consistencyLevel, bindValues);
+        _executeNonSelect(session, prepareStatement(session, cql), consistencyLevel, bindValues);
     }
 
     /**
@@ -196,6 +207,34 @@ public class CqlUtils {
      * @param bindValues
      */
     public static void executeNonSelect(Session session, PreparedStatement stm,
+            Object... bindValues) {
+        _executeNonSelect(session, ensurePrepareStatement(session, stm), bindValues);
+    }
+
+    /**
+     * Executes a non-SELECT query.
+     * 
+     * @param session
+     * @param stm
+     * @param consistencyLevel
+     * @param bindValues
+     * @since 0.2.2
+     */
+    public static void executeNonSelect(Session session, PreparedStatement stm,
+            ConsistencyLevel consistencyLevel, Object... bindValues) {
+        _executeNonSelect(session, ensurePrepareStatement(session, stm), consistencyLevel,
+                bindValues);
+    }
+
+    /**
+     * Executes a non-SELECT query.
+     * 
+     * @param session
+     * @param stm
+     * @param bindValues
+     * @since 0.2.6
+     */
+    private static void _executeNonSelect(Session session, PreparedStatement stm,
             Object... bindValues) {
         BoundStatement bstm = stm.bind();
         if (bindValues != null && bindValues.length > 0) {
@@ -211,9 +250,9 @@ public class CqlUtils {
      * @param stm
      * @param consistencyLevel
      * @param bindValues
-     * @since 0.2.2
+     * @since 0.2.6
      */
-    public static void executeNonSelect(Session session, PreparedStatement stm,
+    private static void _executeNonSelect(Session session, PreparedStatement stm,
             ConsistencyLevel consistencyLevel, Object... bindValues) {
         BoundStatement bstm = stm.bind();
         if (bindValues != null && bindValues.length > 0) {
@@ -234,7 +273,7 @@ public class CqlUtils {
      * @return
      */
     public static ResultSet execute(Session session, String cql, Object... bindValues) {
-        return execute(session, prepareStatement(session, cql), bindValues);
+        return _execute(session, prepareStatement(session, cql), bindValues);
     }
 
     /**
@@ -249,7 +288,7 @@ public class CqlUtils {
      */
     public static ResultSet execute(Session session, String cql, ConsistencyLevel consistencyLevel,
             Object... bindValues) {
-        return execute(session, prepareStatement(session, cql), consistencyLevel, bindValues);
+        return _execute(session, prepareStatement(session, cql), consistencyLevel, bindValues);
     }
 
     /**
@@ -261,6 +300,34 @@ public class CqlUtils {
      * @return
      */
     public static ResultSet execute(Session session, PreparedStatement stm, Object... bindValues) {
+        return _execute(session, ensurePrepareStatement(session, stm), bindValues);
+    }
+
+    /**
+     * Executes a SELECT query and returns results.
+     * 
+     * @param session
+     * @param stm
+     * @param consistencyLevel
+     * @param bindValues
+     * @return
+     * @since 0.2.2
+     */
+    public static ResultSet execute(Session session, PreparedStatement stm,
+            ConsistencyLevel consistencyLevel, Object... bindValues) {
+        return _execute(session, ensurePrepareStatement(session, stm), bindValues);
+    }
+
+    /**
+     * Executes a SELECT query and returns results.
+     * 
+     * @param session
+     * @param stm
+     * @param bindValues
+     * @return
+     * @since 0.2.6
+     */
+    private static ResultSet _execute(Session session, PreparedStatement stm, Object... bindValues) {
         BoundStatement bstm = stm.bind();
         if (bindValues != null && bindValues.length > 0) {
             bstm.bind(bindValues);
@@ -276,9 +343,9 @@ public class CqlUtils {
      * @param consistencyLevel
      * @param bindValues
      * @return
-     * @since 0.2.2
+     * @since 0.2.6
      */
-    public static ResultSet execute(Session session, PreparedStatement stm,
+    private static ResultSet _execute(Session session, PreparedStatement stm,
             ConsistencyLevel consistencyLevel, Object... bindValues) {
         BoundStatement bstm = stm.bind();
         if (bindValues != null && bindValues.length > 0) {
@@ -299,7 +366,7 @@ public class CqlUtils {
      * @return
      */
     public static Row executeOne(Session session, String cql, Object... bindValues) {
-        return executeOne(session, prepareStatement(session, cql), bindValues);
+        return _executeOne(session, prepareStatement(session, cql), bindValues);
     }
 
     /**
@@ -314,7 +381,7 @@ public class CqlUtils {
      */
     public static Row executeOne(Session session, String cql, ConsistencyLevel consistencyLevel,
             Object... bindValues) {
-        return executeOne(session, prepareStatement(session, cql), consistencyLevel, bindValues);
+        return _executeOne(session, prepareStatement(session, cql), consistencyLevel, bindValues);
     }
 
     /**
@@ -326,8 +393,7 @@ public class CqlUtils {
      * @return
      */
     public static Row executeOne(Session session, PreparedStatement stm, Object... bindValues) {
-        ResultSet rs = execute(session, stm, bindValues);
-        return rs != null ? rs.one() : null;
+        return _executeOne(session, ensurePrepareStatement(session, stm), bindValues);
     }
 
     /**
@@ -342,7 +408,37 @@ public class CqlUtils {
      */
     public static Row executeOne(Session session, PreparedStatement stm,
             ConsistencyLevel consistencyLevel, Object... bindValues) {
-        ResultSet rs = execute(session, stm, bindValues);
+        return _executeOne(session, ensurePrepareStatement(session, stm), consistencyLevel,
+                bindValues);
+    }
+
+    /**
+     * Executes a SELECT query and returns just one row.
+     * 
+     * @param session
+     * @param stm
+     * @param bindValues
+     * @return
+     * @since 0.2.6
+     */
+    private static Row _executeOne(Session session, PreparedStatement stm, Object... bindValues) {
+        ResultSet rs = _execute(session, stm, bindValues);
+        return rs != null ? rs.one() : null;
+    }
+
+    /**
+     * Executes a SELECT query and returns just one row.
+     * 
+     * @param session
+     * @param stm
+     * @param consistencyLevel
+     * @param bindValues
+     * @return
+     * @since 0.2.6
+     */
+    private static Row _executeOne(Session session, PreparedStatement stm,
+            ConsistencyLevel consistencyLevel, Object... bindValues) {
+        ResultSet rs = _execute(session, stm, bindValues);
         return rs != null ? rs.one() : null;
     }
 
@@ -358,7 +454,7 @@ public class CqlUtils {
      */
     public static ResultSetFuture executeNonSelectAsync(Session session, String cql,
             Object... bindValues) {
-        return executeNonSelectAsync(session, prepareStatement(session, cql), bindValues);
+        return _executeNonSelectAsync(session, prepareStatement(session, cql), bindValues);
     }
 
     /**
@@ -373,7 +469,7 @@ public class CqlUtils {
      */
     public static ResultSetFuture executeNonSelectAsync(Session session, String cql,
             ConsistencyLevel consistencyLevel, Object... bindValues) {
-        return executeNonSelectAsync(session, prepareStatement(session, cql), consistencyLevel,
+        return _executeNonSelectAsync(session, prepareStatement(session, cql), consistencyLevel,
                 bindValues);
     }
 
@@ -387,6 +483,36 @@ public class CqlUtils {
      * @since 0.2.3
      */
     public static ResultSetFuture executeNonSelectAsync(Session session, PreparedStatement stm,
+            Object... bindValues) {
+        return _executeNonSelectAsync(session, ensurePrepareStatement(session, stm), bindValues);
+    }
+
+    /**
+     * Async-Executes a non-SELECT query.
+     * 
+     * @param session
+     * @param stm
+     * @param consistencyLevel
+     * @param bindValues
+     * @return
+     * @since 0.2.3
+     */
+    public static ResultSetFuture executeNonSelectAsync(Session session, PreparedStatement stm,
+            ConsistencyLevel consistencyLevel, Object... bindValues) {
+        return _executeNonSelectAsync(session, ensurePrepareStatement(session, stm),
+                consistencyLevel, bindValues);
+    }
+
+    /**
+     * Async-Executes a non-SELECT query.
+     * 
+     * @param session
+     * @param stm
+     * @param bindValues
+     * @return
+     * @since 0.2.6
+     */
+    private static ResultSetFuture _executeNonSelectAsync(Session session, PreparedStatement stm,
             Object... bindValues) {
         BoundStatement bstm = stm.bind();
         if (bindValues != null && bindValues.length > 0) {
@@ -403,9 +529,9 @@ public class CqlUtils {
      * @param consistencyLevel
      * @param bindValues
      * @return
-     * @since 0.2.3
+     * @since 0.2.6
      */
-    public static ResultSetFuture executeNonSelectAsync(Session session, PreparedStatement stm,
+    private static ResultSetFuture _executeNonSelectAsync(Session session, PreparedStatement stm,
             ConsistencyLevel consistencyLevel, Object... bindValues) {
         BoundStatement bstm = stm.bind();
         if (bindValues != null && bindValues.length > 0) {
@@ -427,7 +553,7 @@ public class CqlUtils {
      * @since 0.2.3
      */
     public static ResultSetFuture executeAsync(Session session, String cql, Object... bindValues) {
-        return executeAsync(session, prepareStatement(session, cql), bindValues);
+        return _executeAsync(session, prepareStatement(session, cql), bindValues);
     }
 
     /**
@@ -442,7 +568,7 @@ public class CqlUtils {
      */
     public static ResultSetFuture executeAsync(Session session, String cql,
             ConsistencyLevel consistencyLevel, Object... bindValues) {
-        return executeAsync(session, prepareStatement(session, cql), consistencyLevel, bindValues);
+        return _executeAsync(session, prepareStatement(session, cql), consistencyLevel, bindValues);
     }
 
     /**
@@ -455,6 +581,36 @@ public class CqlUtils {
      * @since 0.2.3
      */
     public static ResultSetFuture executeAsync(Session session, PreparedStatement stm,
+            Object... bindValues) {
+        return _executeAsync(session, ensurePrepareStatement(session, stm), bindValues);
+    }
+
+    /**
+     * Async-Executes a SELECT query and returns results.
+     * 
+     * @param session
+     * @param stm
+     * @param consistencyLevel
+     * @param bindValues
+     * @return
+     * @since 0.2.3
+     */
+    public static ResultSetFuture executeAsync(Session session, PreparedStatement stm,
+            ConsistencyLevel consistencyLevel, Object... bindValues) {
+        return _executeAsync(session, ensurePrepareStatement(session, stm), consistencyLevel,
+                bindValues);
+    }
+
+    /**
+     * Async-Executes a SELECT query and returns results.
+     * 
+     * @param session
+     * @param stm
+     * @param bindValues
+     * @return
+     * @since 0.2.6
+     */
+    private static ResultSetFuture _executeAsync(Session session, PreparedStatement stm,
             Object... bindValues) {
         BoundStatement bstm = stm.bind();
         if (bindValues != null && bindValues.length > 0) {
@@ -471,9 +627,9 @@ public class CqlUtils {
      * @param consistencyLevel
      * @param bindValues
      * @return
-     * @since 0.2.3
+     * @since 0.2.6
      */
-    public static ResultSetFuture executeAsync(Session session, PreparedStatement stm,
+    private static ResultSetFuture _executeAsync(Session session, PreparedStatement stm,
             ConsistencyLevel consistencyLevel, Object... bindValues) {
         BoundStatement bstm = stm.bind();
         if (bindValues != null && bindValues.length > 0) {

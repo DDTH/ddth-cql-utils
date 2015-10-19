@@ -1,6 +1,12 @@
 ddth-cql-utils release notes
 ============================
 
+0.2.6 - 2015-10-18
+------------------
+
+- Fix bug: `You may have used a PreparedStatement that was created with another Cluster instance`.
+
+
 0.2.5 - 2015-09-02
 ------------------
 

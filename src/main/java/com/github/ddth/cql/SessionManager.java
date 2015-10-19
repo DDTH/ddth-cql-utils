@@ -130,6 +130,7 @@ public class SessionManager {
         return this;
     }
 
+    /** Map {cluster_info -> Cluster} */
     private LoadingCache<ClusterIdentifier, Cluster> clusterCache = CacheBuilder.newBuilder()
             .expireAfterAccess(3600, TimeUnit.SECONDS)
             .removalListener(new RemovalListener<ClusterIdentifier, Cluster>() {
@@ -139,9 +140,12 @@ public class SessionManager {
                     if (LOGGER.isDebugEnabled()) {
                         LOGGER.debug("Removing cluster from cache: " + key);
                     }
-                    sessionCache.invalidate(key);
-                    Cluster cluster = entry.getValue();
-                    cluster.close();
+                    try {
+                        sessionCache.invalidate(key);
+                    } finally {
+                        Cluster cluster = entry.getValue();
+                        cluster.closeAsync();
+                    }
                 }
             }).build(new CacheLoader<ClusterIdentifier, Cluster>() {
                 @Override
@@ -151,6 +155,7 @@ public class SessionManager {
                 }
             });
 
+    /** Map {cluster_info -> {session_info -> Session}} */
     private LoadingCache<ClusterIdentifier, LoadingCache<SessionIdentifier, Session>> sessionCache = CacheBuilder
             .newBuilder()
             .expireAfterAccess(3600, TimeUnit.SECONDS)
@@ -182,12 +187,8 @@ public class SessionManager {
                                     if (LOGGER.isDebugEnabled()) {
                                         LOGGER.debug("Removing session from cache: " + key);
                                     }
-                                    try {
-                                        Session session = entry.getValue();
-                                        session.close();
-                                    } catch (Exception e) {
-                                        LOGGER.warn(e.getMessage(), e);
-                                    }
+                                    Session session = entry.getValue();
+                                    session.closeAsync();
                                 }
                             }).build(new CacheLoader<SessionIdentifier, Session>() {
                                 @Override
@@ -296,6 +297,16 @@ public class SessionManager {
      */
     public Session getSession(final String hostsAndPorts, final String username,
             final String password, final String keyspace, final boolean forceNew) {
+        /*
+         * Since 0.2.6: refresh cluster cache before obtaining the session to
+         * avoid exception
+         * "You may have used a PreparedStatement that was created with another Cluster instance"
+         */
+        Cluster cluster = getCluster(hostsAndPorts, username, password);
+        if (cluster == null) {
+            return null;
+        }
+
         SessionIdentifier key = new SessionIdentifier(hostsAndPorts, username, password, keyspace);
         try {
             LoadingCache<SessionIdentifier, Session> cacheSessions = sessionCache.get(key);
