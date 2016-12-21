@@ -90,6 +90,8 @@ ResultSet rs = CqlUtils.execute(session, pstm, ConsistencyLevel.LOCAL_ONE, param
 
 ### Notes ###
 
+* As of v3.1.2, DataStax's driver does NOT work with Guava v19+! Use Guava v18 or earlier for now.*
+
 - Initialize `SessionManager` by calling `SessionManager.init()` before use.
 - There is no need to close `Cluster` or `Session`. Use one `Cluster` instance per Cassandra physical cluster
   throughout application's life. Use one `Session` instance per keyspace throughout application's life.
