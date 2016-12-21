@@ -13,7 +13,8 @@ import org.apache.commons.lang3.builder.ToStringBuilder;
 public class SessionIdentifier extends ClusterIdentifier {
     public String keyspace;
 
-    public SessionIdentifier(String hostsAndPorts, String username, String password, String keyspace) {
+    public SessionIdentifier(String hostsAndPorts, String username, String password,
+            String keyspace) {
         super(hostsAndPorts, username, password);
         this.keyspace = keyspace;
     }
@@ -33,11 +34,15 @@ public class SessionIdentifier extends ClusterIdentifier {
      */
     @Override
     public boolean equals(Object obj) {
+        if (obj == this) {
+            return true;
+        }
         if (obj instanceof SessionIdentifier) {
             SessionIdentifier other = (SessionIdentifier) obj;
             EqualsBuilder eq = new EqualsBuilder();
+            eq.appendSuper(super.equals(obj));
             eq.append(keyspace, other.keyspace);
-            return super.equals(obj) && eq.isEquals();
+            return eq.isEquals();
         }
         return false;
     }

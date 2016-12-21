@@ -1,5 +1,7 @@
 package com.github.ddth.cql;
 
+import java.io.Closeable;
+import java.io.IOException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
@@ -7,12 +9,26 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.datastax.driver.core.Cluster;
+import com.datastax.driver.core.Configuration;
+import com.datastax.driver.core.ConsistencyLevel;
+import com.datastax.driver.core.HostDistance;
+import com.datastax.driver.core.MetricsOptions;
 import com.datastax.driver.core.PoolingOptions;
+import com.datastax.driver.core.ProtocolOptions;
+import com.datastax.driver.core.QueryOptions;
 import com.datastax.driver.core.Session;
+import com.datastax.driver.core.SocketOptions;
+import com.datastax.driver.core.ThreadingOptions;
+import com.datastax.driver.core.TimestampGenerator;
 import com.datastax.driver.core.exceptions.AuthenticationException;
 import com.datastax.driver.core.exceptions.NoHostAvailableException;
+import com.datastax.driver.core.policies.AddressTranslator;
+import com.datastax.driver.core.policies.ExponentialReconnectionPolicy;
+import com.datastax.driver.core.policies.LoadBalancingPolicy;
+import com.datastax.driver.core.policies.Policies;
 import com.datastax.driver.core.policies.ReconnectionPolicy;
 import com.datastax.driver.core.policies.RetryPolicy;
+import com.datastax.driver.core.policies.SpeculativeExecutionPolicy;
 import com.github.ddth.cql.internal.ClusterIdentifier;
 import com.github.ddth.cql.internal.SessionIdentifier;
 import com.google.common.cache.CacheBuilder;
@@ -56,13 +72,49 @@ import com.google.common.cache.RemovalNotification;
  * @author Thanh Ba Nguyen <btnguyen2k@gmail.com>
  * @since 0.1.0
  */
-public class SessionManager {
+public class SessionManager implements Closeable {
 
     private Logger LOGGER = LoggerFactory.getLogger(SessionManager.class);
 
+    private Configuration configuration;
+    private MetricsOptions metricsOptions;
     private PoolingOptions poolingOptions;
-    private ReconnectionPolicy reconnectionPolicy;
-    private RetryPolicy retryPolicy;
+    private ProtocolOptions protocolOptions;
+    private QueryOptions queryOptions;
+    private SocketOptions socketOptions;
+    private ThreadingOptions threadingOptions;
+
+    private AddressTranslator addressTranslator = Policies.defaultAddressTranslator();
+    private LoadBalancingPolicy loadBalancingPolicy = Policies.defaultLoadBalancingPolicy();
+    private ReconnectionPolicy reconnectionPolicy = Policies.defaultReconnectionPolicy();
+    private RetryPolicy retryPolicy = Policies.defaultRetryPolicy();
+    private SpeculativeExecutionPolicy speculativeExecutionPolicy = Policies
+            .defaultSpeculativeExecutionPolicy();
+    private TimestampGenerator timestampGenerator = Policies.defaultTimestampGenerator();
+
+    /*----------------------------------------------------------------------*/
+
+    /**
+     * Gets metrics options.
+     * 
+     * @return
+     * @since 0.3.0
+     */
+    public MetricsOptions getMetricsOptions() {
+        return metricsOptions;
+    }
+
+    /**
+     * Sets metrics options for new cluster instances.
+     * 
+     * @param metricsOptions
+     * @return
+     * @since 0.3.0
+     */
+    public SessionManager setMetricsOptions(MetricsOptions metricsOptions) {
+        this.metricsOptions = metricsOptions;
+        return this;
+    }
 
     /**
      * Gets pooling options.
@@ -75,7 +127,7 @@ public class SessionManager {
     }
 
     /**
-     * Sets pooling options for new cluster instance.
+     * Sets pooling options for new cluster instances.
      * 
      * @param poolingOptions
      * @return
@@ -83,6 +135,140 @@ public class SessionManager {
      */
     public SessionManager setPoolingOptions(PoolingOptions poolingOptions) {
         this.poolingOptions = poolingOptions;
+        return this;
+    }
+
+    /**
+     * Gets protocol options.
+     * 
+     * @return
+     * @since 0.3.0
+     */
+    public ProtocolOptions getProtocolOptions() {
+        return protocolOptions;
+    }
+
+    /**
+     * Sets protocol options for new cluster instances.
+     * 
+     * @param protocolOptions
+     * @return
+     * @since 0.3.0
+     */
+    public SessionManager setProtocolOptions(ProtocolOptions protocolOptions) {
+        this.protocolOptions = protocolOptions;
+        return this;
+    }
+
+    /**
+     * Gets query options.
+     * 
+     * @return
+     * @since 0.3.0
+     */
+    public QueryOptions getQueryOptions() {
+        return queryOptions;
+    }
+
+    /**
+     * Sets query options for new cluster instances.
+     * 
+     * @param queryOptions
+     * @return
+     * @since 0.3.0
+     */
+    public SessionManager setQueryOptions(QueryOptions queryOptions) {
+        this.queryOptions = queryOptions;
+        return this;
+    }
+
+    /**
+     * Gets socket options.
+     * 
+     * @return
+     * @since 0.3.0
+     */
+    public SocketOptions getSocketOptions() {
+        return socketOptions;
+    }
+
+    /**
+     * Sets socket options for new cluster instances.
+     * 
+     * @param socketOptions
+     * @return
+     * @since 0.3.0
+     */
+    public SessionManager setSocketOptions(SocketOptions socketOptions) {
+        this.socketOptions = socketOptions;
+        return this;
+    }
+
+    /**
+     * Gets threading options.
+     * 
+     * @return
+     * @since 0.3.0
+     */
+    public ThreadingOptions getThreadingOptions() {
+        return threadingOptions;
+    }
+
+    /**
+     * Sets threading options for new cluster instances.
+     * 
+     * @param threadingOptions
+     * @return
+     * @since 0.3.0
+     */
+    public SessionManager setThreadingOptions(ThreadingOptions threadingOptions) {
+        this.threadingOptions = threadingOptions;
+        return this;
+    }
+
+    /*----------------------------------------------------------------------*/
+
+    /**
+     * Gets address translator.
+     * 
+     * @return
+     * @since 0.3.0
+     */
+    public AddressTranslator getAddressTranslator() {
+        return addressTranslator;
+    }
+
+    /**
+     * Sets address translator for new cluster instances.
+     * 
+     * @param addressTranslator
+     * @return
+     * @since 0.3.0
+     */
+    public SessionManager setAddressTranslator(AddressTranslator addressTranslator) {
+        this.addressTranslator = addressTranslator;
+        return this;
+    }
+
+    /**
+     * Gets load balancing policies.
+     * 
+     * @return
+     * @since 0.3.0
+     */
+    public LoadBalancingPolicy getLoadBalancingPolicy() {
+        return loadBalancingPolicy;
+    }
+
+    /**
+     * Sets load balancing policies for new cluster instances.
+     * 
+     * @param loadBalancingPolicy
+     * @return
+     * @since 0.3.0
+     */
+    public SessionManager setLoadBalancingPolicy(LoadBalancingPolicy loadBalancingPolicy) {
+        this.loadBalancingPolicy = loadBalancingPolicy;
         return this;
     }
 
@@ -130,6 +316,51 @@ public class SessionManager {
         return this;
     }
 
+    /**
+     * Gets speculative execution policies.
+     * 
+     * @return
+     * @since 0.3.0
+     */
+    public SpeculativeExecutionPolicy getSpeculativeExecutionPolicy() {
+        return speculativeExecutionPolicy;
+    }
+
+    /**
+     * Sets speculative execution policies for new cluster instances.
+     * 
+     * @param speculativeExecutionPolicy
+     * @return
+     * @since 0.3.0
+     */
+    public SessionManager setSpeculativeExecutionPolicy(
+            SpeculativeExecutionPolicy speculativeExecutionPolicy) {
+        this.speculativeExecutionPolicy = speculativeExecutionPolicy;
+        return this;
+    }
+
+    /**
+     * Gets timestamp generator.
+     * 
+     * @return
+     * @since 0.3.0
+     */
+    public TimestampGenerator getTimestampGenerator() {
+        return timestampGenerator;
+    }
+
+    /**
+     * Sets timestamp generator for new cluster instances.
+     * 
+     * @param timestampGenerator
+     * @return
+     * @since 0.3.0
+     */
+    public SessionManager setTimestampGenerator(TimestampGenerator timestampGenerator) {
+        this.timestampGenerator = timestampGenerator;
+        return this;
+    }
+
     /** Map {cluster_info -> Cluster} */
     private LoadingCache<ClusterIdentifier, Cluster> clusterCache = CacheBuilder.newBuilder()
             .expireAfterAccess(3600, TimeUnit.SECONDS)
@@ -143,23 +374,20 @@ public class SessionManager {
                     try {
                         sessionCache.invalidate(key);
                     } finally {
-                        Cluster cluster = entry.getValue();
-                        cluster.closeAsync();
+                        entry.getValue().closeAsync();
                     }
                 }
             }).build(new CacheLoader<ClusterIdentifier, Cluster>() {
                 @Override
                 public Cluster load(ClusterIdentifier key) throws Exception {
                     return CqlUtils.newCluster(key.hostsAndPorts, key.username, key.password,
-                            poolingOptions, reconnectionPolicy, retryPolicy);
+                            configuration);
                 }
             });
 
     /** Map {cluster_info -> {session_info -> Session}} */
     private LoadingCache<ClusterIdentifier, LoadingCache<SessionIdentifier, Session>> sessionCache = CacheBuilder
-            .newBuilder()
-            .expireAfterAccess(3600, TimeUnit.SECONDS)
-            .removalListener(
+            .newBuilder().expireAfterAccess(3600, TimeUnit.SECONDS).removalListener(
                     new RemovalListener<ClusterIdentifier, LoadingCache<SessionIdentifier, Session>>() {
                         @Override
                         public void onRemoval(
@@ -168,9 +396,7 @@ public class SessionManager {
                             if (LOGGER.isDebugEnabled()) {
                                 LOGGER.debug("Removing session cache for cluster: " + key);
                             }
-                            LoadingCache<SessionIdentifier, Session> _sessionCache = entry
-                                    .getValue();
-                            _sessionCache.invalidateAll();
+                            entry.getValue().invalidateAll();
                         }
                     })
             .build(new CacheLoader<ClusterIdentifier, LoadingCache<SessionIdentifier, Session>>() {
@@ -187,8 +413,7 @@ public class SessionManager {
                                     if (LOGGER.isDebugEnabled()) {
                                         LOGGER.debug("Removing session from cache: " + key);
                                     }
-                                    Session session = entry.getValue();
-                                    session.closeAsync();
+                                    entry.getValue().closeAsync();
                                 }
                             }).build(new CacheLoader<SessionIdentifier, Session>() {
                                 @Override
@@ -198,8 +423,9 @@ public class SessionManager {
                                         return CqlUtils.newSession(cluster, sessionKey.keyspace);
                                     } catch (IllegalStateException e) {
                                         /*
-                                         * since v0.2.1: rebuild `Cluster` when
-                                         * `java.lang.IllegalStateException`
+                                         * since v0.2.1: rebuild {@code Cluster}
+                                         * when {@code
+                                         * java.lang.IllegalStateException}
                                          * occurred
                                          */
                                         LOGGER.warn(e.getMessage(), e);
@@ -208,13 +434,70 @@ public class SessionManager {
                                         return CqlUtils.newSession(cluster, sessionKey.keyspace);
                                     }
                                 }
-
                             });
                     return _sessionCache;
                 }
             });
 
     public SessionManager init() {
+        Policies.Builder polBuilder = Policies.builder();
+        if (this.addressTranslator == null) {
+            addressTranslator = Policies.defaultAddressTranslator();
+        }
+        polBuilder.withAddressTranslator(addressTranslator);
+        if (this.loadBalancingPolicy == null) {
+            loadBalancingPolicy = Policies.defaultLoadBalancingPolicy();
+        }
+        polBuilder.withLoadBalancingPolicy(loadBalancingPolicy);
+        if (this.reconnectionPolicy == null) {
+            reconnectionPolicy = new ExponentialReconnectionPolicy(1000, 10 * 1000);
+        }
+        polBuilder.withReconnectionPolicy(reconnectionPolicy);
+        if (this.retryPolicy == null) {
+            retryPolicy = Policies.defaultRetryPolicy();
+        }
+        polBuilder.withRetryPolicy(retryPolicy);
+        if (this.speculativeExecutionPolicy == null) {
+            speculativeExecutionPolicy = Policies.defaultSpeculativeExecutionPolicy();
+        }
+        polBuilder.withSpeculativeExecutionPolicy(speculativeExecutionPolicy);
+        if (this.timestampGenerator == null) {
+            timestampGenerator = Policies.defaultTimestampGenerator();
+        }
+        polBuilder.withTimestampGenerator(timestampGenerator);
+        Policies policies = polBuilder.build();
+
+        Configuration.Builder confBuilder = Configuration.builder();
+        if (this.metricsOptions != null) {
+            confBuilder.withMetricsOptions(metricsOptions);
+        }
+        if (this.poolingOptions == null) {
+            poolingOptions = new PoolingOptions();
+            poolingOptions.setConnectionsPerHost(HostDistance.REMOTE, 1, 1);
+            poolingOptions.setConnectionsPerHost(HostDistance.LOCAL, 1, 2);
+            poolingOptions.setHeartbeatIntervalSeconds(10);
+        }
+        confBuilder.withPoolingOptions(poolingOptions);
+        if (this.protocolOptions != null) {
+            confBuilder.withProtocolOptions(protocolOptions);
+        }
+        if (this.queryOptions == null) {
+            queryOptions = new QueryOptions();
+            queryOptions.setConsistencyLevel(ConsistencyLevel.LOCAL_ONE);
+            queryOptions.setSerialConsistencyLevel(ConsistencyLevel.LOCAL_SERIAL);
+            queryOptions.setFetchSize(1024);
+            queryOptions.setDefaultIdempotence(false);
+        }
+        confBuilder.withQueryOptions(queryOptions);
+        if (this.socketOptions != null) {
+            confBuilder.withSocketOptions(socketOptions);
+        }
+        if (this.threadingOptions != null) {
+            confBuilder.withThreadingOptions(threadingOptions);
+        }
+        confBuilder.withPolicies(policies);
+        this.configuration = confBuilder.build();
+
         return this;
     }
 
@@ -222,16 +505,30 @@ public class SessionManager {
         try {
             if (clusterCache != null) {
                 clusterCache.invalidateAll();
+                clusterCache = null;
             }
         } catch (Exception e) {
+            LOGGER.warn(e.getMessage(), e);
         }
 
         try {
             if (sessionCache != null) {
                 sessionCache.invalidateAll();
+                sessionCache = null;
             }
         } catch (Exception e) {
+            LOGGER.warn(e.getMessage(), e);
         }
+    }
+
+    /**
+     * {@inheritDoc}
+     * 
+     * @since 0.3.0
+     */
+    @Override
+    public void close() throws IOException {
+        destroy();
     }
 
     /**
@@ -244,18 +541,20 @@ public class SessionManager {
      * @param password
      * @return
      */
-    public Cluster getCluster(final String hostsAndPorts, final String username,
+    synchronized public Cluster getCluster(final String hostsAndPorts, final String username,
             final String password) {
         ClusterIdentifier key = new ClusterIdentifier(hostsAndPorts, username, password);
         Cluster cluster;
         try {
             cluster = clusterCache.get(key);
+            if (cluster.isClosed()) {
+                LOGGER.info("Cluster [" + cluster + "] was closed, obtaining a new one...");
+                clusterCache.invalidate(key);
+                cluster = clusterCache.get(key);
+            }
         } catch (ExecutionException e) {
             Throwable t = e.getCause();
-            if (t instanceof RuntimeException) {
-                throw (RuntimeException) t;
-            }
-            throw new RuntimeException(t);
+            throw t instanceof RuntimeException ? (RuntimeException) t : new RuntimeException(t);
         }
         return cluster;
     }
@@ -288,14 +587,14 @@ public class SessionManager {
      * @param password
      * @param keyspace
      * @param forceNew
-     *            force create new session instance (and close the existing one,
-     *            if any)
+     *            force create new session instance (the existing one, if any,
+     *            will be closed by calling {@link Session#closeAsync()})
      * @return
      * @throws NoHostAvailableException
      * @throws AuthenticationException
      * @since 0.2.2
      */
-    public Session getSession(final String hostsAndPorts, final String username,
+    synchronized public Session getSession(final String hostsAndPorts, final String username,
             final String password, final String keyspace, final boolean forceNew) {
         /*
          * Since 0.2.6: refresh cluster cache before obtaining the session to
@@ -310,17 +609,23 @@ public class SessionManager {
         SessionIdentifier key = new SessionIdentifier(hostsAndPorts, username, password, keyspace);
         try {
             LoadingCache<SessionIdentifier, Session> cacheSessions = sessionCache.get(key);
-            if (forceNew) {
+            Session existingSession = cacheSessions.getIfPresent(key);
+            if (existingSession != null && existingSession.isClosed()) {
+                LOGGER.info("Session [" + existingSession + "] was closed, obtaining a new one...");
                 cacheSessions.invalidate(key);
+                return cacheSessions.get(key);
             }
-            return cacheSessions.get(key);
+            if (forceNew) {
+                if (existingSession != null) {
+                    cacheSessions.invalidate(key);
+                }
+                return cacheSessions.get(key);
+            }
+            return existingSession != null ? existingSession : cacheSessions.get(key);
         } catch (ExecutionException e) {
             Throwable t = e.getCause();
-            if (t instanceof RuntimeException) {
-                throw (RuntimeException) t;
-            } else {
-                throw new RuntimeException(e);
-            }
+            throw t instanceof RuntimeException ? (RuntimeException) t : new RuntimeException(t);
         }
     }
+
 }

@@ -34,6 +34,9 @@ public class ClusterIdentifier {
      */
     @Override
     public boolean equals(Object obj) {
+        if (obj == this) {
+            return true;
+        }
         if (obj instanceof ClusterIdentifier) {
             ClusterIdentifier other = (ClusterIdentifier) obj;
             EqualsBuilder eq = new EqualsBuilder();
@@ -50,8 +53,8 @@ public class ClusterIdentifier {
     @Override
     public String toString() {
         ToStringBuilder tsb = new ToStringBuilder(this);
-        tsb.append("hostsAndPorts", hostsAndPorts).append("username", username)
-                .append("password", "*");
+        tsb.append("hostsAndPorts", hostsAndPorts).append("username", username).append("password",
+                "*");
         return tsb.toString();
     }
 }

@@ -1,6 +1,16 @@
 ddth-cql-utils release notes
 ============================
 
+0.3.0 - 2016-12-21
+------------------
+
+- Bump to `com.github.ddth:ddth-parent:6`, now requires Java 8+.
+- Upgrade DataStax's driver to `v3.1.2`.
+- `CqlUtils`: Improve PreparedStatement caching.
+- `CqlUtils`: Support named parameters binding.
+- `SessionManager`:  
+
+
 0.2.6 - 2015-10-18
 ------------------
 
