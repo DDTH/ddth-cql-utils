@@ -20,6 +20,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.lang3.StringUtils;
 
+import com.datastax.driver.core.BatchStatement;
 import com.datastax.driver.core.BoundStatement;
 import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.CodecRegistry;
@@ -37,6 +38,7 @@ import com.datastax.driver.core.ResultSetFuture;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.SocketOptions;
+import com.datastax.driver.core.Statement;
 import com.datastax.driver.core.ThreadingOptions;
 import com.datastax.driver.core.TimestampGenerator;
 import com.datastax.driver.core.Token;
@@ -68,7 +70,7 @@ public class CqlUtils {
     public final static int DEFAULT_CASSANDRA_PORT = 9042;
 
     /**
-     * Builds a new Cassandra cluster instance.
+     * Build a new Cassandra cluster instance.
      * 
      * @param hostsAndPorts
      *            format: "host1:port1,host2,host3:port3". If no port is
@@ -175,7 +177,7 @@ public class CqlUtils {
     }
 
     /**
-     * Builds a new Cassandra cluster instance.
+     * Build a new Cassandra cluster instance.
      * 
      * @param hostsAndPorts
      * @param username
@@ -208,7 +210,7 @@ public class CqlUtils {
     }
 
     /**
-     * Builds a new Cassandra cluster instance.
+     * Build a new Cassandra cluster instance.
      * 
      * @param hostsAndPorts
      *            format: "host1:port1,host2,host3:port3". If no port is
@@ -262,7 +264,7 @@ public class CqlUtils {
     }
 
     /**
-     * Creates a new session for a cluster, initializes it and sets the keyspace
+     * Create a new session for a cluster, initializes it and sets the keyspace
      * to the provided one.
      * 
      * @param cluster
@@ -300,7 +302,7 @@ public class CqlUtils {
             });
 
     /**
-     * Prepares a CQL query.
+     * Prepare a CQL query.
      * 
      * @param session
      * @param cql
@@ -323,7 +325,7 @@ public class CqlUtils {
     }
 
     /**
-     * Makes sure the CQL is prepared by the correct Cluster.
+     * Make sure the CQL is prepared by the correct Cluster.
      * 
      * @since 0.2.5
      */
@@ -334,7 +336,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a non-SELECT query.
+     * Execute a non-SELECT query.
      * 
      * @param session
      * @param cql
@@ -345,7 +347,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a non-SELECT query.
+     * Execute a non-SELECT query.
      * 
      * @param session
      * @param cql
@@ -358,7 +360,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a non-SELECT query.
+     * Execute a non-SELECT query.
      * 
      * @param session
      * @param cql
@@ -372,7 +374,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a non-SELECT query.
+     * Execute a non-SELECT query.
      * 
      * @param session
      * @param cql
@@ -386,7 +388,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a non-SELECT query.
+     * Execute a non-SELECT query.
      * 
      * @param session
      * @param stm
@@ -398,7 +400,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a non-SELECT query.
+     * Execute a non-SELECT query.
      * 
      * @param session
      * @param stm
@@ -411,7 +413,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a non-SELECT query.
+     * Execute a non-SELECT query.
      * 
      * @param session
      * @param stm
@@ -426,7 +428,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a non-SELECT query.
+     * Execute a non-SELECT query.
      * 
      * @param session
      * @param stm
@@ -440,7 +442,15 @@ public class CqlUtils {
                 bindValues);
     }
 
-    private static BoundStatement _bindValues(PreparedStatement stm, Object... values) {
+    /**
+     * Bind values to a {@link PreparedStatement}.
+     * 
+     * @param stm
+     * @param values
+     * @return
+     * @since 0.3.1
+     */
+    public static BoundStatement bindValues(PreparedStatement stm, Object... values) {
         BoundStatement bstm = stm.bind();
         if (values != null) {
             for (int i = 0; i < values.length; i++) {
@@ -499,7 +509,15 @@ public class CqlUtils {
         return bstm;
     }
 
-    private static BoundStatement _bindValues(PreparedStatement stm, Map<String, Object> values) {
+    /**
+     * Bind values to a {@link PreparedStatement}.
+     * 
+     * @param stm
+     * @param values
+     * @return
+     * @since 0.3.1
+     */
+    public static BoundStatement bindValues(PreparedStatement stm, Map<String, Object> values) {
         BoundStatement bstm = stm.bind();
         if (values != null) {
             for (Entry<String, Object> entry : values.entrySet()) {
@@ -560,7 +578,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a non-SELECT query.
+     * Execute a non-SELECT query.
      * 
      * @param session
      * @param stm
@@ -569,12 +587,12 @@ public class CqlUtils {
      */
     private static void _executeNonSelect(Session session, PreparedStatement stm,
             Object... bindValues) {
-        BoundStatement bstm = _bindValues(stm, bindValues);
+        BoundStatement bstm = bindValues(stm, bindValues);
         session.execute(bstm);
     }
 
     /**
-     * Executes a non-SELECT query.
+     * Execute a non-SELECT query.
      * 
      * @param session
      * @param stm
@@ -583,12 +601,12 @@ public class CqlUtils {
      */
     private static void _executeNonSelect(Session session, PreparedStatement stm,
             Map<String, Object> bindValues) {
-        BoundStatement bstm = _bindValues(stm, bindValues);
+        BoundStatement bstm = bindValues(stm, bindValues);
         session.execute(bstm);
     }
 
     /**
-     * Executes a non-SELECT query.
+     * Execute a non-SELECT query.
      * 
      * @param session
      * @param stm
@@ -598,7 +616,7 @@ public class CqlUtils {
      */
     private static void _executeNonSelect(Session session, PreparedStatement stm,
             ConsistencyLevel consistencyLevel, Object... bindValues) {
-        BoundStatement bstm = _bindValues(stm, bindValues);
+        BoundStatement bstm = bindValues(stm, bindValues);
         if (consistencyLevel != null) {
             if (consistencyLevel == ConsistencyLevel.SERIAL
                     || consistencyLevel == ConsistencyLevel.LOCAL_SERIAL) {
@@ -611,7 +629,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a non-SELECT query.
+     * Execute a non-SELECT query.
      * 
      * @param session
      * @param stm
@@ -621,7 +639,7 @@ public class CqlUtils {
      */
     private static void _executeNonSelect(Session session, PreparedStatement stm,
             ConsistencyLevel consistencyLevel, Map<String, Object> bindValues) {
-        BoundStatement bstm = _bindValues(stm, bindValues);
+        BoundStatement bstm = bindValues(stm, bindValues);
         if (consistencyLevel != null) {
             if (consistencyLevel == ConsistencyLevel.SERIAL
                     || consistencyLevel == ConsistencyLevel.LOCAL_SERIAL) {
@@ -634,7 +652,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a SELECT query and returns the {@link ResultSet}.
+     * Execute a SELECT query and returns the {@link ResultSet}.
      * 
      * @param session
      * @param cql
@@ -646,7 +664,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a SELECT query and returns the {@link ResultSet}.
+     * Execute a SELECT query and returns the {@link ResultSet}.
      * 
      * @param session
      * @param cql
@@ -659,7 +677,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a SELECT query and returns the {@link ResultSet}.
+     * Execute a SELECT query and returns the {@link ResultSet}.
      * 
      * @param session
      * @param cql
@@ -674,7 +692,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a SELECT query and returns the {@link ResultSet}.
+     * Execute a SELECT query and returns the {@link ResultSet}.
      * 
      * @param session
      * @param cql
@@ -689,7 +707,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a SELECT query and returns the {@link ResultSet}.
+     * Execute a SELECT query and returns the {@link ResultSet}.
      * 
      * @param session
      * @param stm
@@ -701,7 +719,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a SELECT query and returns the {@link ResultSet}.
+     * Execute a SELECT query and returns the {@link ResultSet}.
      * 
      * @param session
      * @param stm
@@ -715,7 +733,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a SELECT query and returns the {@link ResultSet}.
+     * Execute a SELECT query and returns the {@link ResultSet}.
      * 
      * @param session
      * @param stm
@@ -730,7 +748,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a SELECT query and returns the {@link ResultSet}.
+     * Execute a SELECT query and returns the {@link ResultSet}.
      * 
      * @param session
      * @param stm
@@ -745,7 +763,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a SELECT query and returns the {@link ResultSet}.
+     * Execute a SELECT query and returns the {@link ResultSet}.
      * 
      * @param session
      * @param stm
@@ -755,12 +773,12 @@ public class CqlUtils {
      */
     private static ResultSet _execute(Session session, PreparedStatement stm,
             Object... bindValues) {
-        BoundStatement bstm = _bindValues(stm, bindValues);
+        BoundStatement bstm = bindValues(stm, bindValues);
         return session.execute(bstm);
     }
 
     /**
-     * Executes a SELECT query and returns the {@link ResultSet}.
+     * Execute a SELECT query and returns the {@link ResultSet}.
      * 
      * @param session
      * @param stm
@@ -770,12 +788,12 @@ public class CqlUtils {
      */
     private static ResultSet _execute(Session session, PreparedStatement stm,
             Map<String, Object> bindValues) {
-        BoundStatement bstm = _bindValues(stm, bindValues);
+        BoundStatement bstm = bindValues(stm, bindValues);
         return session.execute(bstm);
     }
 
     /**
-     * Executes a SELECT query and returns the {@link ResultSet}.
+     * Execute a SELECT query and returns the {@link ResultSet}.
      * 
      * @param session
      * @param stm
@@ -786,7 +804,7 @@ public class CqlUtils {
      */
     private static ResultSet _execute(Session session, PreparedStatement stm,
             ConsistencyLevel consistencyLevel, Object... bindValues) {
-        BoundStatement bstm = _bindValues(stm, bindValues);
+        BoundStatement bstm = bindValues(stm, bindValues);
         if (consistencyLevel != null) {
             if (consistencyLevel == ConsistencyLevel.SERIAL
                     || consistencyLevel == ConsistencyLevel.LOCAL_SERIAL) {
@@ -799,7 +817,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a SELECT query and returns the {@link ResultSet}.
+     * Execute a SELECT query and returns the {@link ResultSet}.
      * 
      * @param session
      * @param stm
@@ -810,7 +828,7 @@ public class CqlUtils {
      */
     private static ResultSet _execute(Session session, PreparedStatement stm,
             ConsistencyLevel consistencyLevel, Map<String, Object> bindValues) {
-        BoundStatement bstm = _bindValues(stm, bindValues);
+        BoundStatement bstm = bindValues(stm, bindValues);
         if (consistencyLevel != null) {
             if (consistencyLevel == ConsistencyLevel.SERIAL
                     || consistencyLevel == ConsistencyLevel.LOCAL_SERIAL) {
@@ -823,7 +841,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a SELECT query and returns just one row.
+     * Execute a SELECT query and returns just one row.
      * 
      * @param session
      * @param cql
@@ -835,7 +853,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a SELECT query and returns just one row.
+     * Execute a SELECT query and returns just one row.
      * 
      * @param session
      * @param cql
@@ -848,7 +866,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a SELECT query and returns just one row.
+     * Execute a SELECT query and returns just one row.
      * 
      * @param session
      * @param cql
@@ -863,7 +881,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a SELECT query and returns just one row.
+     * Execute a SELECT query and returns just one row.
      * 
      * @param session
      * @param cql
@@ -878,7 +896,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a SELECT query and returns just one row.
+     * Execute a SELECT query and returns just one row.
      * 
      * @param session
      * @param stm
@@ -890,7 +908,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a SELECT query and returns just one row.
+     * Execute a SELECT query and returns just one row.
      * 
      * @param session
      * @param stm
@@ -904,7 +922,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a SELECT query and returns just one row.
+     * Execute a SELECT query and returns just one row.
      * 
      * @param session
      * @param stm
@@ -920,7 +938,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a SELECT query and returns just one row.
+     * Execute a SELECT query and returns just one row.
      * 
      * @param session
      * @param stm
@@ -936,7 +954,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a SELECT query and returns just one row.
+     * Execute a SELECT query and returns just one row.
      * 
      * @param session
      * @param stm
@@ -950,7 +968,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a SELECT query and returns just one row.
+     * Execute a SELECT query and returns just one row.
      * 
      * @param session
      * @param stm
@@ -965,7 +983,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a SELECT query and returns just one row.
+     * Execute a SELECT query and returns just one row.
      * 
      * @param session
      * @param stm
@@ -981,7 +999,7 @@ public class CqlUtils {
     }
 
     /**
-     * Executes a SELECT query and returns just one row.
+     * Execute a SELECT query and returns just one row.
      * 
      * @param session
      * @param stm
@@ -1128,7 +1146,7 @@ public class CqlUtils {
      */
     private static ResultSetFuture _executeNonSelectAsync(Session session, PreparedStatement stm,
             Object... bindValues) {
-        BoundStatement bstm = _bindValues(stm, bindValues);
+        BoundStatement bstm = bindValues(stm, bindValues);
         return session.executeAsync(bstm);
     }
 
@@ -1143,7 +1161,7 @@ public class CqlUtils {
      */
     private static ResultSetFuture _executeNonSelectAsync(Session session, PreparedStatement stm,
             Map<String, Object> bindValues) {
-        BoundStatement bstm = _bindValues(stm, bindValues);
+        BoundStatement bstm = bindValues(stm, bindValues);
         return session.executeAsync(bstm);
     }
 
@@ -1159,7 +1177,7 @@ public class CqlUtils {
      */
     private static ResultSetFuture _executeNonSelectAsync(Session session, PreparedStatement stm,
             ConsistencyLevel consistencyLevel, Object... bindValues) {
-        BoundStatement bstm = _bindValues(stm, bindValues);
+        BoundStatement bstm = bindValues(stm, bindValues);
         if (consistencyLevel != null) {
             if (consistencyLevel == ConsistencyLevel.SERIAL
                     || consistencyLevel == ConsistencyLevel.LOCAL_SERIAL) {
@@ -1183,7 +1201,7 @@ public class CqlUtils {
      */
     private static ResultSetFuture _executeNonSelectAsync(Session session, PreparedStatement stm,
             ConsistencyLevel consistencyLevel, Map<String, Object> bindValues) {
-        BoundStatement bstm = _bindValues(stm, bindValues);
+        BoundStatement bstm = bindValues(stm, bindValues);
         if (consistencyLevel != null) {
             if (consistencyLevel == ConsistencyLevel.SERIAL
                     || consistencyLevel == ConsistencyLevel.LOCAL_SERIAL) {
@@ -1323,7 +1341,7 @@ public class CqlUtils {
      */
     private static ResultSetFuture _executeAsync(Session session, PreparedStatement stm,
             Object... bindValues) {
-        BoundStatement bstm = _bindValues(stm, bindValues);
+        BoundStatement bstm = bindValues(stm, bindValues);
         return session.executeAsync(bstm);
     }
 
@@ -1338,7 +1356,7 @@ public class CqlUtils {
      */
     private static ResultSetFuture _executeAsync(Session session, PreparedStatement stm,
             Map<String, Object> bindValues) {
-        BoundStatement bstm = _bindValues(stm, bindValues);
+        BoundStatement bstm = bindValues(stm, bindValues);
         return session.executeAsync(bstm);
     }
 
@@ -1354,7 +1372,7 @@ public class CqlUtils {
      */
     private static ResultSetFuture _executeAsync(Session session, PreparedStatement stm,
             ConsistencyLevel consistencyLevel, Object... bindValues) {
-        BoundStatement bstm = _bindValues(stm, bindValues);
+        BoundStatement bstm = bindValues(stm, bindValues);
         if (consistencyLevel != null) {
             if (consistencyLevel == ConsistencyLevel.SERIAL
                     || consistencyLevel == ConsistencyLevel.LOCAL_SERIAL) {
@@ -1378,7 +1396,7 @@ public class CqlUtils {
      */
     private static ResultSetFuture _executeAsync(Session session, PreparedStatement stm,
             ConsistencyLevel consistencyLevel, Map<String, Object> bindValues) {
-        BoundStatement bstm = _bindValues(stm, bindValues);
+        BoundStatement bstm = bindValues(stm, bindValues);
         if (consistencyLevel != null) {
             if (consistencyLevel == ConsistencyLevel.SERIAL
                     || consistencyLevel == ConsistencyLevel.LOCAL_SERIAL) {
@@ -1388,5 +1406,300 @@ public class CqlUtils {
             }
         }
         return session.executeAsync(bstm);
+    }
+
+    /*----------------------------------------------------------------------*/
+    /**
+     * Build batch statement.
+     * 
+     * @param statements
+     * @return
+     * @since 0.3.1
+     */
+    public static BatchStatement buildBatch(Statement... statements) {
+        return buildBatch(null, statements);
+    }
+
+    /**
+     * Build batch statement.
+     * 
+     * @param batchType
+     * @param statements
+     * @return
+     * @since 0.3.1
+     */
+    public static BatchStatement buildBatch(BatchStatement.Type batchType,
+            Statement... statements) {
+        if (statements == null || statements.length == 0) {
+            throw new IllegalArgumentException("Statement list is null or empty!");
+        }
+        BatchStatement bStm = batchType != null ? new BatchStatement(batchType)
+                : new BatchStatement();
+        for (Statement stm : statements) {
+            bStm.add(stm);
+        }
+        return bStm;
+    }
+
+    /**
+     * Execute a batch statement.
+     * 
+     * @param session
+     * @param bStm
+     * @return
+     * @since 0.3.1
+     */
+    public static ResultSet executeBatch(Session session, BatchStatement bStm) {
+        return executeBatch(session, bStm, null);
+    }
+
+    /**
+     * Execute a batch statement.
+     * 
+     * @param session
+     * @param bStm
+     * @param consistencyLevel
+     * @return
+     * @since 0.3.1
+     */
+    public static ResultSet executeBatch(Session session, BatchStatement bStm,
+            ConsistencyLevel consistencyLevel) {
+        if (consistencyLevel != null) {
+            if (consistencyLevel == ConsistencyLevel.SERIAL
+                    || consistencyLevel == ConsistencyLevel.LOCAL_SERIAL) {
+                bStm.setSerialConsistencyLevel(consistencyLevel);
+            } else {
+                bStm.setConsistencyLevel(consistencyLevel);
+            }
+        }
+        return session.execute(bStm);
+    }
+
+    /**
+     * Execute a non-select batch statement.
+     * 
+     * @param session
+     * @param bStm
+     * @since 0.3.1
+     */
+    public static void executeBatchNonSelect(Session session, BatchStatement bStm) {
+        executeBatchNonSelect(session, bStm, null);
+    }
+
+    /**
+     * Execute a non-select batch statement.
+     * 
+     * @param session
+     * @param bStm
+     * @param consistencyLevel
+     * @since 0.3.1
+     */
+    public static void executeBatchNonSelect(Session session, BatchStatement bStm,
+            ConsistencyLevel consistencyLevel) {
+        if (consistencyLevel != null) {
+            if (consistencyLevel == ConsistencyLevel.SERIAL
+                    || consistencyLevel == ConsistencyLevel.LOCAL_SERIAL) {
+                bStm.setSerialConsistencyLevel(consistencyLevel);
+            } else {
+                bStm.setConsistencyLevel(consistencyLevel);
+            }
+        }
+        session.execute(bStm);
+    }
+
+    /**
+     * Async-Execute a batch statement.
+     * 
+     * @param session
+     * @param bStm
+     * @return
+     * @since 0.3.1
+     */
+    public static ResultSetFuture executeBatchAsync(Session session, BatchStatement bStm) {
+        return executeBatchAsync(session, bStm, null);
+    }
+
+    /**
+     * Async-Execute a batch statement.
+     * 
+     * @param session
+     * @param bStm
+     * @param consistencyLevel
+     * @return
+     * @since 0.3.1
+     */
+    public static ResultSetFuture executeBatchAsync(Session session, BatchStatement bStm,
+            ConsistencyLevel consistencyLevel) {
+        if (consistencyLevel != null) {
+            if (consistencyLevel == ConsistencyLevel.SERIAL
+                    || consistencyLevel == ConsistencyLevel.LOCAL_SERIAL) {
+                bStm.setSerialConsistencyLevel(consistencyLevel);
+            } else {
+                bStm.setConsistencyLevel(consistencyLevel);
+            }
+        }
+        return session.executeAsync(bStm);
+    }
+
+    /**
+     * Execute batches of statements.
+     * 
+     * @param session
+     * @param statements
+     * @return
+     * @since 0.3.1
+     */
+    public static ResultSet executeBatch(Session session, Statement... statements) {
+        return executeBatch(session, null, null, statements);
+    }
+
+    /**
+     * Execute batches of statements.
+     * 
+     * @param session
+     * @param consistencyLevel
+     * @param statements
+     * @return
+     * @since 0.3.1
+     */
+    public static ResultSet executeBatch(Session session, ConsistencyLevel consistencyLevel,
+            Statement... statements) {
+        return executeBatch(session, consistencyLevel, null, statements);
+    }
+
+    /**
+     * Execute batches of statements.
+     * 
+     * @param session
+     * @param batchType
+     * @param statements
+     * @return
+     * @since 0.3.1
+     */
+    public static ResultSet executeBatch(Session session, BatchStatement.Type batchType,
+            Statement... statements) {
+        return executeBatch(session, null, batchType, statements);
+    }
+
+    /**
+     * Execute batches of statements.
+     * 
+     * @param session
+     * @param consistencyLevel
+     * @param batchType
+     * @param statements
+     * @return
+     * @since 0.3.1
+     */
+    public static ResultSet executeBatch(Session session, ConsistencyLevel consistencyLevel,
+            BatchStatement.Type batchType, Statement... statements) {
+        return executeBatch(session, buildBatch(batchType, statements), consistencyLevel);
+    }
+
+    /**
+     * Execute no-select batches of statements.
+     * 
+     * @param session
+     * @param statements
+     * @since 0.3.1
+     */
+    public static void executeBatchNonSelect(Session session, Statement... statements) {
+        executeBatchNonSelect(session, null, null, statements);
+    }
+
+    /**
+     * Execute non-select batches of statements.
+     * 
+     * @param session
+     * @param consistencyLevel
+     * @param statements
+     * @since 0.3.1
+     */
+    public static void executeBatchNonSelect(Session session, ConsistencyLevel consistencyLevel,
+            Statement... statements) {
+        executeBatchNonSelect(session, consistencyLevel, null, statements);
+    }
+
+    /**
+     * Execute non-select batches of statements.
+     * 
+     * @param session
+     * @param batchType
+     * @param statements
+     * @since 0.3.1
+     */
+    public static void executeBatchNonSelect(Session session, BatchStatement.Type batchType,
+            Statement... statements) {
+        executeBatchNonSelect(session, null, batchType, statements);
+    }
+
+    /**
+     * Execute non-select batches of statements.
+     * 
+     * @param session
+     * @param consistencyLevel
+     * @param batchType
+     * @param statements
+     * @since 0.3.1
+     */
+    public static void executeBatchNonSelect(Session session, ConsistencyLevel consistencyLevel,
+            BatchStatement.Type batchType, Statement... statements) {
+        executeBatchNonSelect(session, buildBatch(batchType, statements), consistencyLevel);
+    }
+
+    /**
+     * Async-Execute batches of statements.
+     * 
+     * @param session
+     * @param statements
+     * @return
+     * @since 0.3.1
+     */
+    public static ResultSetFuture executeBatchAsync(Session session, Statement... statements) {
+        return executeBatchAsync(session, null, null, statements);
+    }
+
+    /**
+     * Async-Execute batches of statements.
+     * 
+     * @param session
+     * @param consistencyLevel
+     * @param statements
+     * @return
+     * @since 0.3.1
+     */
+    public static ResultSetFuture executeBatchAsync(Session session,
+            ConsistencyLevel consistencyLevel, Statement... statements) {
+        return executeBatchAsync(session, consistencyLevel, null, statements);
+    }
+
+    /**
+     * Async-Execute batches of statements.
+     * 
+     * @param session
+     * @param batchType
+     * @param statements
+     * @return
+     * @since 0.3.1
+     */
+    public static ResultSetFuture executeBatchAsync(Session session, BatchStatement.Type batchType,
+            Statement... statements) {
+        return executeBatchAsync(session, null, batchType, statements);
+    }
+
+    /**
+     * Async-Execute batches of statements.
+     * 
+     * @param session
+     * @param consistencyLevel
+     * @param batchType
+     * @param statements
+     * @return
+     * @since 0.3.1
+     */
+    public static ResultSetFuture executeBatchAsync(Session session,
+            ConsistencyLevel consistencyLevel, BatchStatement.Type batchType,
+            Statement... statements) {
+        return executeBatchAsync(session, buildBatch(batchType, statements), consistencyLevel);
     }
 }

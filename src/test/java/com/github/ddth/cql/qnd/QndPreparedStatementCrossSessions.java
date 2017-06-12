@@ -14,6 +14,14 @@ import com.github.ddth.cql.SessionManager;
  * Statement that was prepared for a session can be used by another session from
  * the same cluster.
  * 
+ * <p>
+ * Schema:
+ * </p>
+ * 
+ * <pre>
+ * CREATE TABLE tbldemo (id UUID, data TEXT, PRIMARY KEY (id)) WITH COMPACT STORAGE;
+ * </pre>
+ * 
  * @author btnguyen
  */
 public class QndPreparedStatementCrossSessions {

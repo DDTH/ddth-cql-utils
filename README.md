@@ -1,7 +1,7 @@
-ddth-cql-utils
-==============
+# ddth-cql-utils
 
-Wrap around [DataStax's Cassandra Java Driver](http://docs.datastax.com/en/developer/driver-matrix/doc/javaDrivers.html) and simplify the usage of CQL with helper class.
+Wrap around [DataStax's Cassandra Java Driver](http://docs.datastax.com/en/developer/driver-matrix/doc/javaDrivers.html)
+and simplify the usage of CQL with helper class.
 
 Project home:
 [https://github.com/DDTH/ddth-cql-utils](https://github.com/DDTH/ddth-cql-utils)
@@ -9,9 +9,9 @@ Project home:
 **`ddth-cql-utils` requires Java 8+ since v0.3.0**
 
 
-## Installation ##
+## Installation
 
-Latest release version: `0.3.0`. See [RELEASE-NOTES.md](RELEASE-NOTES.md).
+Latest release version: `0.3.1`. See [RELEASE-NOTES.md](RELEASE-NOTES.md).
 
 Maven dependency:
 
@@ -19,12 +19,12 @@ Maven dependency:
 <dependency>
 	<groupId>com.github.ddth</groupId>
 	<artifactId>ddth-cql-utils</artifactId>
-	<version>0.3.0</version>
+	<version>0.3.1</version>
 </dependency>
 ```
 
 
-## Usage ##
+## Usage
 
 Manage Cassandra `Cluster` and `Session` with `SessionManager`:
 
@@ -54,7 +54,7 @@ Session session = sm.getSession("host1:port1,host2,host3:port3...", username, pa
  * Notes:
  * - Use one Session instance per keyspace throughout application's life. SessionManager caches Session instances so
  *   it's safe to call SessionManager.getSession(...) multiple times with the same parameters.
- * - Close sluster instances only when absolutely needed, SessionManager will close open Sessions during SessionManager.destroy() call.
+ * - Close Session instances only when absolutely needed, SessionManager will close open Sessions during SessionManager.destroy() call.
  */
 
 // destroy the session manager at the end of application's life
@@ -81,32 +81,41 @@ CqlUtils.executeNonSelect(session, pstm, params);
 // or:
 CqlUtils.executeNonSelect(session, "INSERT INTO product (sku, description) VALUES (:sku, :desc)", params);
 
-// execute a select query is simply
+// execute a select query is as simple as
 ResultSet rs = CqlUtils.execute(session, pstm, value1, value2, value3...);
 
 // consistency level can be specified for individual query
 ResultSet rs = CqlUtils.execute(session, pstm, ConsistencyLevel.LOCAL_ONE, params);
+
+// bind values to prepared statement manually: bind by index
+Statement stm1 = CqlUtils.bindValues(pStm1, value1, value2, value3...);
+// or bind by name
+Map<String, Object> valuesAndKeys = ...;
+Statement stm2 = CqlUtils.bindValues(pStm2, valuesAndKeys);
+
+// execute a batch of statements
+ResultSet rs = CqlUtils.executeBatch(session, stm1, stm2...);
 ```
 
-### Notes ###
+### Notes
 
-* As of v3.1.2, DataStax's driver does NOT work with Guava v19+! Use Guava v18 or earlier for now.*
+* As of v3.2.0, DataStax's driver requires Guava v16.0.1!
 
 - Initialize `SessionManager` by calling `SessionManager.init()` before use.
 - There is no need to close `Cluster` or `Session`. Use one `Cluster` instance per Cassandra physical cluster
   throughout application's life. Use one `Session` instance per keyspace throughout application's life.
-- `SessionManager` cache opened `Cluster`s and `Session`s. It is safe to call `SessionManager.getCluster(...)` and
+- `SessionManager` caches opened `Cluster`s and `Session`s. It is safe to call `SessionManager.getCluster(...)` and
   `SessionManager.getSession(...)` multiple times.
-- If you use compression, include appropriate jar files in classpath. See: https://docs.datastax.com/en/developer/java-driver/3.1/manual/compression/
+- If you use compression, include appropriate jar files in classpath. See: https://docs.datastax.com/en/developer/java-driver/3.2/manual/compression/
 
 
-## Credits ##
+## Credits
 
 - [Datastax](http://docs.datastax.com/en/developer/driver-matrix/doc/javaDrivers.html) is the underlying Cassandra library. 
 
 
-## License ##
+## License
 
-See LICENSE.txt for details. Copyright (c) 2014-2016 Thanh Ba Nguyen.
+See LICENSE.txt for details. Copyright (c) 2014-2017 Thanh Ba Nguyen.
 
 Third party libraries are distributed under their own licenses.
