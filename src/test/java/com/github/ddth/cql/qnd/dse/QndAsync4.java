@@ -1,4 +1,4 @@
-package dse;
+package com.github.ddth.cql.qnd.dse;
 
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -11,11 +11,11 @@ import com.github.ddth.cql.DseSessionManager;
 import com.google.common.util.concurrent.FutureCallback;
 
 /**
- * Async-insert to table, limit number of async-jobs.
+ * Async-insert to table, limit number of async-jobs, retry when failed/wait for permit.
  * 
  * @author Thanh Nguyen <btnguyen2k@gmail.com>
  */
-public class QndAsync2 {
+public class QndAsync4 {
 
     static {
         System.setProperty("org.slf4j.simpleLogger.logFile", "System.out");
@@ -50,21 +50,34 @@ public class QndAsync2 {
             PreparedStatement stm = sm
                     .prepareStatement("INSERT INTO test.tbl_test (id, name) VALUES (?, ?)");
             AtomicLong counterSuccess = new AtomicLong(), counterError = new AtomicLong();
-            FutureCallback<ResultSet> future = new FutureCallback<ResultSet>() {
-                @Override
-                public void onSuccess(@Nullable ResultSet result) {
-                    counterSuccess.incrementAndGet();
-                }
-
-                @Override
-                public void onFailure(Throwable t) {
-                    counterError.incrementAndGet();
-                }
-            };
             for (int i = 0; i < NUM_ROWS; i++) {
                 String id = idList[i];
                 String name = nameList[i];
-                sm.executeAsync(future, stm, id, name);
+                FutureCallback<ResultSet> future = new FutureCallback<ResultSet>() {
+                    @Override
+                    public void onSuccess(@Nullable ResultSet result) {
+                        counterSuccess.incrementAndGet();
+                    }
+
+                    @Override
+                    public void onFailure(Throwable t) {
+                        counterError.incrementAndGet();
+                        try {
+                            sm.executeAsync(this, 1234, stm, this.id, this.name);
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                    }
+
+                    private String id, name;
+
+                    public FutureCallback<ResultSet> init(String id, String name) {
+                        this.id = id;
+                        this.name = name;
+                        return this;
+                    }
+                }.init(id, name);
+                sm.executeAsync(future, 1234, stm, id, name);
             }
             long t3 = System.currentTimeMillis();
             System.out.println("Generated [" + NUM_ROWS + "] entries in " + (t2 - t1) + " ms.");
@@ -89,5 +102,4 @@ public class QndAsync2 {
             }
         }
     }
-
 }

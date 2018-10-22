@@ -1,4 +1,4 @@
-package dse;
+package com.github.ddth.cql.qnd.dse;
 
 import java.util.concurrent.atomic.AtomicLong;
 

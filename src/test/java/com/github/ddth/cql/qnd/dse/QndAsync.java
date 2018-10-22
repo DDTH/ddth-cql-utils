@@ -1,4 +1,4 @@
-package dse;
+package com.github.ddth.cql.qnd.dse;
 
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.StringUtils;
