@@ -18,7 +18,7 @@ import com.github.ddth.cql.CqlUtils;
 public class QndPreparedStatement {
 
     public static void main(String[] args) throws Exception {
-        final Cluster cluster = CqlUtils.newCluster("localhost", "demo", "demo");
+        final Cluster cluster = CqlUtils.newCluster("localhost", "test", "test");
         cluster.getConfiguration().getProtocolOptions().setCompression(Compression.SNAPPY);
         {
             PoolingOptions pOptions = cluster.getConfiguration().getPoolingOptions();

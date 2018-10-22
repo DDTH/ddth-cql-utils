@@ -16,8 +16,7 @@ public class QndPreparedStatementCrossSessions2 {
         try (SessionManager sm = new SessionManager()) {
             sm.init();
 
-            Session session = sm.getSession("10.30.55.41:9042,10.30.55.42:9042,10.30.55.43:9042",
-                    "tsc", "tsc", "tsc_demo", false);
+            Session session = sm.getSession("localhost", "tsc", "tsc", "tsc_demo", false);
             System.out.println("Session: " + session);
 
             final PreparedStatement pstm = CqlUtils.prepareStatement(session,
@@ -25,8 +24,7 @@ public class QndPreparedStatementCrossSessions2 {
 
             CqlUtils.execute(session, pstm, "counter_1", 1L);
 
-            session = sm.getSession("10.30.55.43:9042,10.30.55.41:9042,10.30.55.42:9042", "tsc",
-                    "tsc", "tsc_demo", false);
+            session = sm.getSession("localhost", "tsc", "tsc", "tsc_demo", false);
             System.out.println("Session: " + session);
 
             CqlUtils.execute(session, pstm, "counter_1", 1L);

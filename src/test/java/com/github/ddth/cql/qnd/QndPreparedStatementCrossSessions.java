@@ -30,15 +30,15 @@ public class QndPreparedStatementCrossSessions {
         try (SessionManager sm = new SessionManager()) {
             sm.init();
 
-            Session session = sm.getSession("localhost", "demo", "demo", "demo", true);
+            Session session = sm.getSession("localhost", "test", "test", null, true);
             System.out.println("Session: " + session);
 
             final PreparedStatement pstm = CqlUtils.prepareStatement(session,
-                    "SELECT * FROM tbldemo WHERE id=?");
+                    "SELECT * FROM test.tbl_test WHERE id=?");
 
             {
                 ResultSet rs = CqlUtils.execute(session, pstm,
-                        UUID.fromString("62c36092-82a1-3a00-93d1-46196ee77204"));
+                        "62c36092-82a1-3a00-93d1-46196ee77204");
                 Iterator<Row> it = rs.iterator();
                 while (it.hasNext()) {
                     Row row = it.next();
@@ -46,12 +46,12 @@ public class QndPreparedStatementCrossSessions {
                 }
             }
 
-            session = sm.getSession("localhost", "demo", "demo", "demo", true);
+            session = sm.getSession("localhost", "test", "test", null, true);
             System.out.println(session);
 
             {
                 ResultSet rs = CqlUtils.execute(session, pstm,
-                        UUID.fromString("444c3a8a-25fd-431c-b73e-14ef8a9e22fc"));
+                        "444c3a8a-25fd-431c-b73e-14ef8a9e22fc");
                 Iterator<Row> it = rs.iterator();
                 while (it.hasNext()) {
                     Row row = it.next();

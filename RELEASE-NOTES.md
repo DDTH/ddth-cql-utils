@@ -1,5 +1,20 @@
 # ddth-cql-utils release notes
 
+## 0.4.0 - 2018-10-21
+
+- Add support for DataStax Enterprise: new class `DseSessionManager`
+- Upgrade to `cassandra-driver-core:3.6.0` and `dse-java-driver-core:1.7.0`, both are marked as optional
+- `CqlUtils`:
+  - New methods `newDseCluster(...)` and `newDseSession(...)`
+  - Methods `executeNonSelectAsync(...)` are now deprecated 
+- `SessionManager`:
+  - Add `defaultHostsAndPorts`, `defaultUsername`, `defaultPassword`, `defaultKeyspace`
+  - New method `public Configuration getConfiguration()`
+  - New methods to get default Cluster (`getCluster()`) and default Session (`getSession(...)`)
+  - Many new methods to execute CQL/statement using the default Session 
+  - Async-execution with callback, limit maximum number of async-jobs (new class `ExceedMaxAsyncJobsException`)
+
+
 ## 0.3.1 - 2017-06-12
 
 - `CqlUtils`: new method(s) for batch queries.

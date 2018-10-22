@@ -1,23 +1,32 @@
 package com.github.ddth.cql;
 
 import java.io.Closeable;
-import java.io.IOException;
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.datastax.driver.core.BatchStatement;
+import com.datastax.driver.core.BoundStatement;
 import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.Configuration;
 import com.datastax.driver.core.ConsistencyLevel;
 import com.datastax.driver.core.HostDistance;
 import com.datastax.driver.core.MetricsOptions;
 import com.datastax.driver.core.PoolingOptions;
+import com.datastax.driver.core.PreparedStatement;
 import com.datastax.driver.core.ProtocolOptions;
 import com.datastax.driver.core.QueryOptions;
+import com.datastax.driver.core.ResultSet;
+import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.SocketOptions;
+import com.datastax.driver.core.Statement;
 import com.datastax.driver.core.ThreadingOptions;
 import com.datastax.driver.core.TimestampGenerator;
 import com.datastax.driver.core.exceptions.AuthenticationException;
@@ -31,11 +40,13 @@ import com.datastax.driver.core.policies.RetryPolicy;
 import com.datastax.driver.core.policies.SpeculativeExecutionPolicy;
 import com.github.ddth.cql.internal.ClusterIdentifier;
 import com.github.ddth.cql.internal.SessionIdentifier;
+import com.github.ddth.cql.utils.ExceedMaxAsyncJobsException;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.cache.RemovalListener;
-import com.google.common.cache.RemovalNotification;
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.Futures;
 
 /**
  * Datastax's session manager.
@@ -60,12 +71,27 @@ import com.google.common.cache.RemovalNotification;
  * </li>
  * <li>Obtain a {@link Session}:<br/>
  * &nbsp;&nbsp;&nbsp;&nbsp;
- * {@code Cluster cluster = sessionManager.getSession("host1:port1,host2:port2", "username", "password", "keyspace");}
+ * {@code Session session = sessionManager.getSession("host1:port1,host2:port2", "username", "password", "keyspace");}
  * </li>
  * <li>...do business work with the obtained {@link Cluster} or {@link Session}
  * ...</li>
  * <li>Before existing the application:<br/>
  * &nbsp;&nbsp;&nbsp;&nbsp;{@code sessionManager.destroy();}</li>
+ * </ul>
+ * </p>
+ * 
+ * <p>
+ * Best practices:
+ * <ul>
+ * <li>{@link Cluster} is thread-safe; create a single instance (per target Cassandra cluster), and
+ * share it throughout the application.</li>
+ * <li>{@link Session} is thread-safe; create a single instance (per target Cassandra cluster), and
+ * share it throughout the application (prefix table name with keyspace in all queries, e.g.
+ * {@code SELECT * FROM my_keyspace.my_table}).</li>
+ * <li>Create {@link Session} without associated keyspace:
+ * {@code sessionManager.getSession("host1:port1,host2:port2", "username", "password", null)}
+ * (prefix table name with keyspace in all queries, e.g.
+ * {@code SELECT * FROM my_keyspace.my_table}).</li>
  * </ul>
  * </p>
  * 
@@ -92,7 +118,137 @@ public class SessionManager implements Closeable {
             .defaultSpeculativeExecutionPolicy();
     private TimestampGenerator timestampGenerator = Policies.defaultTimestampGenerator();
 
+    private int maxSyncJobs = 100;
+    private Semaphore asyncSemaphore;
+    private ExecutorService asyncExecutor;
+
+    private String defaultHostsAndPorts, defaultUsername, defaultPassword, defaultKeyspace;
+
     /*----------------------------------------------------------------------*/
+
+    /**
+     * Max number of allowed async-jobs. Then number of async-jobs exceeds this number,
+     * {@link ExceedMaxAsyncJobsException} is thrown.
+     * 
+     * @return
+     * @since 0.4.0
+     */
+    public int getMaxAsyncJobs() {
+        return maxSyncJobs;
+    }
+
+    /**
+     * Max number of allowed async-jobs. Then number of async-jobs exceeds this number,
+     * {@link ExceedMaxAsyncJobsException} is thrown.
+     * 
+     * @param maxSyncJobs
+     * @return
+     * @since 0.4.0
+     */
+    public SessionManager setMaxAsyncJobs(int maxSyncJobs) {
+        this.maxSyncJobs = maxSyncJobs;
+        return this;
+    }
+
+    /**
+     * Default hosts and ports used by {@link #getCluster()} and {@link #getSession()}.
+     * 
+     * @return
+     * @since 0.4.0
+     */
+    public String getDefaultHostsAndPorts() {
+        return defaultHostsAndPorts;
+    }
+
+    /**
+     * Default hosts and ports used by {@link #getCluster()} and {@link #getSession()}.
+     * 
+     * @param defaultHostsAndPorts
+     * @return
+     * @since 0.4.0
+     */
+    public SessionManager setDefaultHostsAndPorts(String defaultHostsAndPorts) {
+        this.defaultHostsAndPorts = defaultHostsAndPorts;
+        return this;
+    }
+
+    /**
+     * Default username used by {@link #getCluster()} and {@link #getSession()}.
+     * 
+     * @return
+     * @since 0.4.0
+     */
+    public String getDefaultUsername() {
+        return defaultUsername;
+    }
+
+    /**
+     * Default username used by {@link #getCluster()} and {@link #getSession()}.
+     * 
+     * @param defaultUsername
+     * @return
+     * @since 0.4.0
+     */
+    public SessionManager setDefaultUsername(String defaultUsername) {
+        this.defaultUsername = defaultUsername;
+        return this;
+    }
+
+    /**
+     * Default password used by {@link #getCluster()} and {@link #getSession()}.
+     * 
+     * @return
+     * @since 0.4.0
+     */
+    public String getDefaultPassword() {
+        return defaultPassword;
+    }
+
+    /**
+     * Default password used by {@link #getCluster()} and {@link #getSession()}.
+     * 
+     * @param defaultPassword
+     * @return
+     * @since 0.4.0
+     */
+    public SessionManager setDefaultPassword(String defaultPassword) {
+        this.defaultPassword = defaultPassword;
+        return this;
+    }
+
+    /**
+     * Default keyspace used by {@link #getSession()}.
+     * 
+     * @return
+     * @since 0.4.0
+     */
+    public String getDefaultKeyspace() {
+        return defaultKeyspace;
+    }
+
+    /**
+     * Default keyspace used by {@link #getSession()}.
+     * 
+     * @param defaultKeyspace
+     * @return
+     * @since 0.4.0
+     */
+    public SessionManager setDefaultKeyspace(String defaultKeyspace) {
+        this.defaultKeyspace = defaultKeyspace;
+        return this;
+    }
+
+    /*----------------------------------------------------------------------*/
+
+    /**
+     * Get the configured {@link Configuration} object.
+     * 
+     * @return
+     * @since 0.4.0
+     */
+    protected Configuration getConfiguration() {
+        return configuration;
+    }
 
     /**
      * Gets metrics options.
@@ -362,11 +518,36 @@ public class SessionManager implements Closeable {
     }
 
     /** Map {cluster_info -> Cluster} */
-    private LoadingCache<ClusterIdentifier, Cluster> clusterCache = CacheBuilder.newBuilder()
-            .expireAfterAccess(3600, TimeUnit.SECONDS)
-            .removalListener(new RemovalListener<ClusterIdentifier, Cluster>() {
-                @Override
-                public void onRemoval(RemovalNotification<ClusterIdentifier, Cluster> entry) {
+    private LoadingCache<ClusterIdentifier, Cluster> clusterCache;
+
+    /** Map {cluster_info -> {session_info -> Session}} */
+    private LoadingCache<ClusterIdentifier, LoadingCache<SessionIdentifier, Session>> sessionCache;
+
+    /**
+     * Create a {@link Cluster} instance.
+     * 
+     * @param ci
+     * @return
+     * @since 0.4.0
+     */
+    protected Cluster createCluster(ClusterIdentifier ci) {
+        return CqlUtils.newCluster(ci.hostsAndPorts, ci.username, ci.password, getConfiguration());
+    }
+
+    /**
+     * Create a {@link Session} instance.
+     * 
+     * @param cluster
+     * @param keyspace
+     * @return
+     */
+    protected Session createSession(Cluster cluster, String keyspace) {
+        return CqlUtils.newSession(cluster, keyspace);
+    }
+
+    public SessionManager init() {
+        clusterCache = CacheBuilder.newBuilder().expireAfterAccess(3600, TimeUnit.SECONDS)
+                .removalListener((RemovalListener<ClusterIdentifier, Cluster>) entry -> {
                     ClusterIdentifier key = entry.getKey();
                     if (LOGGER.isDebugEnabled()) {
                         LOGGER.debug("Removing cluster from cache: " + key);
@@ -376,70 +557,64 @@ public class SessionManager implements Closeable {
                     } finally {
                         entry.getValue().closeAsync();
                     }
-                }
-            }).build(new CacheLoader<ClusterIdentifier, Cluster>() {
-                @Override
-                public Cluster load(ClusterIdentifier key) throws Exception {
-                    return CqlUtils.newCluster(key.hostsAndPorts, key.username, key.password,
-                            configuration);
-                }
-            });
+                }).build(new CacheLoader<ClusterIdentifier, Cluster>() {
+                    @Override
+                    public Cluster load(ClusterIdentifier key) {
+                        return createCluster(key);
+                    }
+                });
 
-    /** Map {cluster_info -> {session_info -> Session}} */
-    private LoadingCache<ClusterIdentifier, LoadingCache<SessionIdentifier, Session>> sessionCache = CacheBuilder
-            .newBuilder().expireAfterAccess(3600, TimeUnit.SECONDS).removalListener(
-                    new RemovalListener<ClusterIdentifier, LoadingCache<SessionIdentifier, Session>>() {
-                        @Override
-                        public void onRemoval(
-                                RemovalNotification<ClusterIdentifier, LoadingCache<SessionIdentifier, Session>> entry) {
+        /** Map {cluster_info -> {session_info -> Session}} */
+        sessionCache = CacheBuilder.newBuilder().expireAfterAccess(3600, TimeUnit.SECONDS)
+                .removalListener(
+                        (RemovalListener<ClusterIdentifier, LoadingCache<SessionIdentifier, Session>>) entry -> {
                             ClusterIdentifier key = entry.getKey();
                             if (LOGGER.isDebugEnabled()) {
                                 LOGGER.debug("Removing session cache for cluster: " + key);
                             }
                             entry.getValue().invalidateAll();
-                        }
-                    })
-            .build(new CacheLoader<ClusterIdentifier, LoadingCache<SessionIdentifier, Session>>() {
-                @Override
-                public LoadingCache<SessionIdentifier, Session> load(ClusterIdentifier clusterKey)
-                        throws Exception {
-                    LoadingCache<SessionIdentifier, Session> _sessionCache = CacheBuilder
-                            .newBuilder().expireAfterAccess(3600, TimeUnit.SECONDS)
-                            .removalListener(new RemovalListener<SessionIdentifier, Session>() {
-                                @Override
-                                public void onRemoval(
-                                        RemovalNotification<SessionIdentifier, Session> entry) {
-                                    SessionIdentifier key = entry.getKey();
-                                    if (LOGGER.isDebugEnabled()) {
-                                        LOGGER.debug("Removing session from cache: " + key);
+                        })
+                .build(new CacheLoader<ClusterIdentifier, LoadingCache<SessionIdentifier, Session>>() {
+                    @Override
+                    public LoadingCache<SessionIdentifier, Session> load(
+                            ClusterIdentifier clusterKey) {
+                        LoadingCache<SessionIdentifier, Session> _sessionCache = CacheBuilder
+                                .newBuilder().expireAfterAccess(3600, TimeUnit.SECONDS)
+                                .removalListener(
+                                        (RemovalListener<SessionIdentifier, Session>) entry -> {
+                                            SessionIdentifier key = entry.getKey();
+                                            if (LOGGER.isDebugEnabled()) {
+                                                LOGGER.debug("Removing session from cache: " + key);
+                                            }
+                                            entry.getValue().closeAsync();
+                                        })
+                                .build(new CacheLoader<SessionIdentifier, Session>() {
+                                    @Override
+                                    public Session load(SessionIdentifier sessionKey)
+                                            throws Exception {
+                                        try {
+                                            Cluster cluster = clusterCache.get(sessionKey);
+                                            return createSession(cluster, sessionKey.keyspace);
+                                        } catch (IllegalStateException e) {
+                                            /*
+                                             * since v0.2.1: rebuild {@code Cluster}
+                                             * when {@code java.lang.IllegalStateException}
+                                             * occurred
+                                             */
+                                            LOGGER.warn(e.getMessage(), e);
+                                            clusterCache.invalidate(sessionKey);
+                                            Cluster cluster = clusterCache.get(sessionKey);
+                                            return createSession(cluster, sessionKey.keyspace);
+                                        }
                                     }
-                                    entry.getValue().closeAsync();
-                                }
-                            }).build(new CacheLoader<SessionIdentifier, Session>() {
-                                @Override
-                                public Session load(SessionIdentifier sessionKey) throws Exception {
-                                    try {
-                                        Cluster cluster = clusterCache.get(sessionKey);
-                                        return CqlUtils.newSession(cluster, sessionKey.keyspace);
-                                    } catch (IllegalStateException e) {
-                                        /*
-                                         * since v0.2.1: rebuild {@code Cluster}
-                                         * when {@code
-                                         * java.lang.IllegalStateException}
-                                         * occurred
-                                         */
-                                        LOGGER.warn(e.getMessage(), e);
-                                        clusterCache.invalidate(sessionKey);
-                                        Cluster cluster = clusterCache.get(sessionKey);
-                                        return CqlUtils.newSession(cluster, sessionKey.keyspace);
-                                    }
-                                }
-                            });
-                    return _sessionCache;
-                }
-            });
+                                });
+                        return _sessionCache;
+                    }
+                });
 
-    public SessionManager init() {
+        asyncExecutor = Executors.newCachedThreadPool();
+        asyncSemaphore = new Semaphore(maxSyncJobs, true);
+
         Policies.Builder polBuilder = Policies.builder();
         if (this.addressTranslator == null) {
             addressTranslator = Policies.defaultAddressTranslator();
@@ -519,6 +694,15 @@ public class SessionManager implements Closeable {
         } catch (Exception e) {
             LOGGER.warn(e.getMessage(), e);
         }
+
+        try {
+            if (asyncExecutor != null) {
+                asyncExecutor.shutdown();
+                asyncExecutor = null;
+            }
+        } catch (Exception e) {
+            LOGGER.warn(e.getMessage(), e);
+        }
     }
 
     /**
@@ -527,23 +711,18 @@ public class SessionManager implements Closeable {
      * @since 0.3.0
      */
     @Override
-    public void close() throws IOException {
+    public void close() {
         destroy();
     }
 
     /**
-     * Obtains a Cassandra cluster instance.
+     * Obtain a Cassandra cluster instance.
      * 
-     * @param hostsAndPorts
-     *            format: "host1:port1,host2,host3:port3". If no port is
-     *            specified, the {@link #DEFAULT_CASSANDRA_PORT} is used.
-     * @param username
-     * @param password
+     * @param key
      * @return
+     * @since 0.4.0
      */
-    synchronized public Cluster getCluster(final String hostsAndPorts, final String username,
-            final String password) {
-        ClusterIdentifier key = new ClusterIdentifier(hostsAndPorts, username, password);
+    synchronized protected Cluster getCluster(ClusterIdentifier key) {
         Cluster cluster;
         try {
             cluster = clusterCache.get(key);
@@ -560,7 +739,34 @@ public class SessionManager implements Closeable {
     }
 
     /**
-     * Obtains a Cassandra session instance.
+     * Obtain a Cassandra cluster instance.
+     * 
+     * @param hostsAndPorts
+     *            format: "host1:port1,host2,host3:port3". If no port is
+     *            specified, the {@link CqlUtils#DEFAULT_CASSANDRA_PORT} is used.
+     * @param username
+     * @param password
+     * @return
+     */
+    public Cluster getCluster(String hostsAndPorts, String username, String password) {
+        return getCluster(ClusterIdentifier.getInstance(hostsAndPorts, username, password));
+    }
+
+    /**
+     * Obtain a Cassandra cluster instance using {@link #defaultHostsAndPorts},
+     * {@link #defaultUsername} and {@link #defaultPassword}.
+     * 
+     * @return
+     * @since 0.4.0
+     */
+    public Cluster getCluster() {
+        return getCluster(defaultHostsAndPorts, defaultPassword, defaultPassword);
+    }
+
+    /*----------------------------------------------------------------------*/
+
+    /**
+     * Obtain a Cassandra session instance.
      * 
      * <p>
      * The existing session instance will be returned if such existed.
@@ -574,13 +780,52 @@ public class SessionManager implements Closeable {
      * @throws NoHostAvailableException
      * @throws AuthenticationException
      */
-    public Session getSession(final String hostsAndPorts, final String username,
-            final String password, final String keyspace) {
+    public Session getSession(String hostsAndPorts, String username, String password,
+            String keyspace) {
         return getSession(hostsAndPorts, username, password, keyspace, false);
     }
 
     /**
-     * Obtains a Cassandra session instance.
+     * Obtain a Cassandra session instance.
+     * 
+     * @param si
+     * @param forceNew
+     * @return
+     */
+    synchronized protected Session getSession(SessionIdentifier si, boolean forceNew) {
+        /*
+         * Since 0.2.6: refresh cluster cache before obtaining the session to
+         * avoid exception
+         * "You may have used a PreparedStatement that was created with another Cluster instance"
+         */
+        Cluster cluster = getCluster(si);
+        if (cluster == null) {
+            return null;
+        }
+
+        try {
+            LoadingCache<SessionIdentifier, Session> cacheSessions = sessionCache.get(si);
+            Session existingSession = cacheSessions.getIfPresent(si);
+            if (existingSession != null && existingSession.isClosed()) {
+                LOGGER.info("Session [" + existingSession + "] was closed, obtaining a new one...");
+                cacheSessions.invalidate(si);
+                return cacheSessions.get(si);
+            }
+            if (forceNew) {
+                if (existingSession != null) {
+                    cacheSessions.invalidate(si);
+                }
+                return cacheSessions.get(si);
+            }
+            return existingSession != null ? existingSession : cacheSessions.get(si);
+        } catch (ExecutionException e) {
+            Throwable t = e.getCause();
+            throw t instanceof RuntimeException ? (RuntimeException) t : new RuntimeException(t);
+        }
+    }
+
+    /**
+     * Obtain a Cassandra session instance.
      * 
      * @param hostsAndPorts
      * @param username
@@ -588,44 +833,2209 @@ public class SessionManager implements Closeable {
      * @param keyspace
      * @param forceNew
      *            force create new session instance (the existing one, if any,
-     *            will be closed by calling {@link Session#closeAsync()})
+     *            will be closed)
      * @return
-     * @throws NoHostAvailableException
+     * @throws NoHostAvailableExceptions
      * @throws AuthenticationException
      * @since 0.2.2
      */
-    synchronized public Session getSession(final String hostsAndPorts, final String username,
-            final String password, final String keyspace, final boolean forceNew) {
-        /*
-         * Since 0.2.6: refresh cluster cache before obtaining the session to
-         * avoid exception
-         * "You may have used a PreparedStatement that was created with another Cluster instance"
-         */
-        Cluster cluster = getCluster(hostsAndPorts, username, password);
-        if (cluster == null) {
-            return null;
-        }
+    public Session getSession(String hostsAndPorts, String username, String password,
+            String keyspace, boolean forceNew) {
+        return getSession(
+                SessionIdentifier.getInstance(hostsAndPorts, username, password, keyspace),
+                forceNew);
+    }
 
-        SessionIdentifier key = new SessionIdentifier(hostsAndPorts, username, password, keyspace);
-        try {
-            LoadingCache<SessionIdentifier, Session> cacheSessions = sessionCache.get(key);
-            Session existingSession = cacheSessions.getIfPresent(key);
-            if (existingSession != null && existingSession.isClosed()) {
-                LOGGER.info("Session [" + existingSession + "] was closed, obtaining a new one...");
-                cacheSessions.invalidate(key);
-                return cacheSessions.get(key);
-            }
-            if (forceNew) {
-                if (existingSession != null) {
-                    cacheSessions.invalidate(key);
+    /**
+     * Obtain a Cassandra session instance using {@link #defaultHostsAndPorts},
+     * {@link #defaultUsername}, {@link #defaultPassword} and {@link #defaultKeyspace}.
+     * 
+     * @return
+     * @since 0.4.0
+     */
+    public Session getSession() {
+        return getSession(false);
+    }
+
+    /**
+     * Obtain a Cassandra session instance using {@link #defaultHostsAndPorts},
+     * {@link #defaultUsername}, {@link #defaultPassword} and {@link #defaultKeyspace}.
+     * 
+     * @param forceNew
+     *            force create new session instance (the existing one, if any,
+     *            will be closed)
+     * @return
+     * @since 0.4.0
+     */
+    public Session getSession(boolean forceNew) {
+        return getSession(defaultHostsAndPorts, defaultUsername, defaultPassword, defaultKeyspace,
+                forceNew);
+    }
+
+    /*----------------------------------------------------------------------*/
+
+    /**
+     * Prepare a CQL query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to prepare the CQL query.
+     * </p>
+     * 
+     * @param cql
+     * @return
+     * @since 0.4.0
+     */
+    public PreparedStatement prepareStatement(String cql) {
+        return CqlUtils.prepareStatement(getSession(), cql);
+    }
+
+    /**
+     * Bind values to a {@link PreparedStatement}.
+     * 
+     * @param stm
+     * @param values
+     * @return
+     * @since 0.4.0
+     */
+    public BoundStatement bindValues(PreparedStatement stm, Object... values) {
+        return CqlUtils.bindValues(stm, values);
+    }
+
+    /**
+     * Bind values to a {@link PreparedStatement}.
+     * 
+     * @param stm
+     * @param values
+     * @return
+     * @since 0.4.0
+     */
+    public BoundStatement bindValues(PreparedStatement stm, Map<String, Object> values) {
+        return CqlUtils.bindValues(stm, values);
+    }
+
+    /**
+     * Execute a non-SELECT query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param cql
+     * @param bindValues
+     * @since 0.4.0
+     */
+    public void executeNonSelect(String cql, Object... bindValues) {
+        CqlUtils.executeNonSelect(getSession(), cql, bindValues);
+    }
+
+    /**
+     * Execute a non-SELECT query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param cql
+     * @param bindValues
+     * @since 0.4.0
+     */
+    public void executeNonSelect(String cql, Map<String, Object> bindValues) {
+        CqlUtils.executeNonSelect(getSession(), cql, bindValues);
+    }
+
+    /**
+     * Execute a non-SELECT query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param cql
+     * @param consistencyLevel
+     * @param bindValues
+     * @since 0.4.0
+     */
+    public void executeNonSelect(String cql, ConsistencyLevel consistencyLevel,
+            Object... bindValues) {
+        CqlUtils.executeNonSelect(getSession(), cql, consistencyLevel, bindValues);
+    }
+
+    /**
+     * Execute a non-SELECT query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param cql
+     * @param consistencyLevel
+     * @param bindValues
+     * @since 0.4.0
+     */
+    public void executeNonSelect(Session session, String cql, ConsistencyLevel consistencyLevel,
+            Map<String, Object> bindValues) {
+        CqlUtils.executeNonSelect(getSession(), cql, consistencyLevel, bindValues);
+    }
+
+    /**
+     * Execute a non-SELECT query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param stm
+     * @param bindValues
+     * @since 0.4.0
+     */
+    public void executeNonSelect(PreparedStatement stm, Object... bindValues) {
+        CqlUtils.executeNonSelect(getSession(), stm, bindValues);
+    }
+
+    /**
+     * Execute a non-SELECT query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param stm
+     * @param bindValues
+     * @since 0.4.0
+     */
+    public void executeNonSelect(PreparedStatement stm, Map<String, Object> bindValues) {
+        CqlUtils.executeNonSelect(getSession(), stm, bindValues);
+    }
+
+    /**
+     * Execute a non-SELECT query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param stm
+     * @param consistencyLevel
+     * @param bindValues
+     * @since 0.4.0
+     */
+    public void executeNonSelect(PreparedStatement stm, ConsistencyLevel consistencyLevel,
+            Object... bindValues) {
+        CqlUtils.executeNonSelect(getSession(), stm, consistencyLevel, bindValues);
+    }
+
+    /**
+     * Execute a non-SELECT query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param stm
+     * @param consistencyLevel
+     * @param bindValues
+     * @since 0.4.0
+     */
+    public void executeNonSelect(PreparedStatement stm, ConsistencyLevel consistencyLevel,
+            Map<String, Object> bindValues) {
+        CqlUtils.executeNonSelect(getSession(), stm, consistencyLevel, bindValues);
+    }
+
+    /**
+     * Execute a SELECT query and returns the {@link ResultSet}.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param cql
+     * @param bindValues
+     * @return
+     * @since 0.4.0
+     */
+    public ResultSet execute(String cql, Object... bindValues) {
+        return CqlUtils.execute(getSession(), cql, bindValues);
+    }
+
+    /**
+     * Execute a SELECT query and returns the {@link ResultSet}.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param cql
+     * @param bindValues
+     * @return
+     * @since 0.4.0
+     */
+    public ResultSet execute(String cql, Map<String, Object> bindValues) {
+        return CqlUtils.execute(getSession(), cql, bindValues);
+    }
+
+    /**
+     * Execute a SELECT query and returns the {@link ResultSet}.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param cql
+     * @param consistencyLevel
+     * @param bindValues
+     * @return
+     * @since 0.4.0
+     */
+    public ResultSet execute(String cql, ConsistencyLevel consistencyLevel, Object... bindValues) {
+        return CqlUtils.execute(getSession(), cql, consistencyLevel, bindValues);
+    }
+
+    /**
+     * Execute a SELECT query and returns the {@link ResultSet}.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param cql
+     * @param consistencyLevel
+     * @param bindValues
+     * @return
+     * @since 0.4.0
+     */
+    public ResultSet execute(String cql, ConsistencyLevel consistencyLevel,
+            Map<String, Object> bindValues) {
+        return CqlUtils.execute(getSession(), cql, consistencyLevel, bindValues);
+    }
+
+    /**
+     * Execute a SELECT query and returns the {@link ResultSet}.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param stm
+     * @param bindValues
+     * @return
+     * @since 0.4.0
+     */
+    public ResultSet execute(PreparedStatement stm, Object... bindValues) {
+        return CqlUtils.execute(getSession(), stm, bindValues);
+    }
+
+    /**
+     * Execute a SELECT query and returns the {@link ResultSet}.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param stm
+     * @param bindValues
+     * @return
+     * @since 0.4.0
+     */
+    public ResultSet execute(PreparedStatement stm, Map<String, Object> bindValues) {
+        return CqlUtils.execute(getSession(), stm, bindValues);
+    }
+
+    /**
+     * Execute a SELECT query and returns the {@link ResultSet}.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param stm
+     * @param consistencyLevel
+     * @param bindValues
+     * @return
+     * @since 0.4.0
+     */
+    public ResultSet execute(PreparedStatement stm, ConsistencyLevel consistencyLevel,
+            Object... bindValues) {
+        return CqlUtils.execute(getSession(), stm, consistencyLevel, bindValues);
+    }
+
+    /**
+     * Execute a SELECT query and returns the {@link ResultSet}.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param stm
+     * @param consistencyLevel
+     * @param bindValues
+     * @return
+     * @since 0.4.0
+     */
+    public ResultSet execute(PreparedStatement stm, ConsistencyLevel consistencyLevel,
+            Map<String, Object> bindValues) {
+        return CqlUtils.execute(getSession(), stm, consistencyLevel, bindValues);
+    }
+
+    /**
+     * Execute a SELECT query and returns just one row.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param cql
+     * @param bindValues
+     * @return
+     * @since 0.4.0
+     */
+    public Row executeOne(String cql, Object... bindValues) {
+        return CqlUtils.executeOne(getSession(), cql, bindValues);
+    }
+
+    /**
+     * Execute a SELECT query and returns just one row.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param cql
+     * @param bindValues
+     * @return
+     * @since 0.4.0
+     */
+    public Row executeOne(String cql, Map<String, Object> bindValues) {
+        return CqlUtils.executeOne(getSession(), cql, bindValues);
+    }
+
+    /**
+     * Execute a SELECT query and returns just one row.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param cql
+     * @param consistencyLevel
+     * @param bindValues
+     * @return
+     * @since 0.4.0
+     */
+    public Row executeOne(String cql, ConsistencyLevel consistencyLevel, Object... bindValues) {
+        return CqlUtils.executeOne(getSession(), cql, consistencyLevel, bindValues);
+    }
+
+    /**
+     * Execute a SELECT query and returns just one row.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param cql
+     * @param consistencyLevel
+     * @param bindValues
+     * @return
+     * @since 0.4.0
+     */
+    public Row executeOne(String cql, ConsistencyLevel consistencyLevel,
+            Map<String, Object> bindValues) {
+        return CqlUtils.executeOne(getSession(), cql, consistencyLevel, bindValues);
+    }
+
+    /**
+     * Execute a SELECT query and returns just one row.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param stm
+     * @param bindValues
+     * @return
+     * @since 0.4.0
+     */
+    public Row executeOne(PreparedStatement stm, Object... bindValues) {
+        return CqlUtils.executeOne(getSession(), stm, bindValues);
+    }
+
+    /**
+     * Execute a SELECT query and returns just one row.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param stm
+     * @param bindValues
+     * @return
+     * @since 0.4.0
+     */
+    public Row executeOne(PreparedStatement stm, Map<String, Object> bindValues) {
+        return CqlUtils.executeOne(getSession(), stm, bindValues);
+    }
+
+    /**
+     * Execute a SELECT query and returns just one row.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param stm
+     * @param consistencyLevel
+     * @param bindValues
+     * @return
+     * @since 0.4.0
+     */
+    public Row executeOne(PreparedStatement stm, ConsistencyLevel consistencyLevel,
+            Object... bindValues) {
+        return CqlUtils.executeOne(getSession(), stm, consistencyLevel, bindValues);
+    }
+
+    /**
+     * Execute a SELECT query and returns just one row.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param session
+     * @param stm
+     * @param consistencyLevel
+     * @param bindValues
+     * @return
+     * @since 0.4.0
+     */
+    public Row executeOne(PreparedStatement stm, ConsistencyLevel consistencyLevel,
+            Map<String, Object> bindValues) {
+        return CqlUtils.executeOne(getSession(), stm, consistencyLevel, bindValues);
+    }
+
+    /*----------------------------------------------------------------------*/
+
+    private FutureCallback<ResultSet> wrapCallbackResultSet(FutureCallback<ResultSet> callback) {
+        return new FutureCallback<ResultSet>() {
+            @Override
+            public void onSuccess(ResultSet result) {
+                try {
+                    callback.onSuccess(result);
+                } finally {
+                    asyncSemaphore.release();
                 }
-                return cacheSessions.get(key);
             }
-            return existingSession != null ? existingSession : cacheSessions.get(key);
-        } catch (ExecutionException e) {
-            Throwable t = e.getCause();
-            throw t instanceof RuntimeException ? (RuntimeException) t : new RuntimeException(t);
+
+            @Override
+            public void onFailure(Throwable t) {
+                try {
+                    callback.onFailure(t);
+                } finally {
+                    asyncSemaphore.release();
+                }
+            }
+        };
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param cql
+     * @param bindValues
+     * @since 0.4.0
+     */
+    public void executeAsync(FutureCallback<ResultSet> callback, String cql, Object... bindValues) {
+        if (!asyncSemaphore.tryAcquire()) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(CqlUtils.executeAsync(getSession(), cql, bindValues),
+                        wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
         }
     }
 
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param cql
+     * @param bindValues
+     * @since 0.4.0
+     */
+    public void executeAsync(FutureCallback<ResultSet> callback, String cql,
+            Map<String, Object> bindValues) {
+        if (!asyncSemaphore.tryAcquire()) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(CqlUtils.executeAsync(getSession(), cql, bindValues),
+                        wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param cql
+     * @param consistencyLevel
+     * @param bindValues
+     * @since 0.4.0
+     */
+    public void executeAsync(FutureCallback<ResultSet> callback, String cql,
+            ConsistencyLevel consistencyLevel, Object... bindValues) {
+        if (!asyncSemaphore.tryAcquire()) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(
+                        CqlUtils.executeAsync(getSession(), cql, consistencyLevel, bindValues),
+                        wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param cql
+     * @param consistencyLevel
+     * @param bindValues
+     * @since 0.4.0
+     */
+    public void executeAsync(FutureCallback<ResultSet> callback, String cql,
+            ConsistencyLevel consistencyLevel, Map<String, Object> bindValues) {
+        if (!asyncSemaphore.tryAcquire()) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(
+                        CqlUtils.executeAsync(getSession(), cql, consistencyLevel, bindValues),
+                        wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param stm
+     * @param bindValues
+     * @since 0.4.0
+     */
+    public void executeAsync(FutureCallback<ResultSet> callback, PreparedStatement stm,
+            Object... bindValues) {
+        if (!asyncSemaphore.tryAcquire()) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(CqlUtils.executeAsync(getSession(), stm, bindValues),
+                        wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param stm
+     * @param bindValues
+     * @since 0.4.0
+     */
+    public void executeAsync(FutureCallback<ResultSet> callback, PreparedStatement stm,
+            Map<String, Object> bindValues) {
+        if (!asyncSemaphore.tryAcquire()) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(CqlUtils.executeAsync(getSession(), stm, bindValues),
+                        wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param stm
+     * @param consistencyLevel
+     * @param bindValues
+     * @since 0.4.0
+     */
+    public void executeAsync(FutureCallback<ResultSet> callback, PreparedStatement stm,
+            ConsistencyLevel consistencyLevel, Object... bindValues) {
+        if (!asyncSemaphore.tryAcquire()) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(
+                        CqlUtils.executeAsync(getSession(), stm, consistencyLevel, bindValues),
+                        wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param stm
+     * @param consistencyLevel
+     * @param bindValues
+     * @since 0.4.0
+     */
+    public void executeAsync(FutureCallback<ResultSet> callback, PreparedStatement stm,
+            ConsistencyLevel consistencyLevel, Map<String, Object> bindValues) {
+        if (!asyncSemaphore.tryAcquire()) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(
+                        CqlUtils.executeAsync(getSession(), stm, consistencyLevel, bindValues),
+                        wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param permitTimeoutMs
+     *            wait up to this milliseconds before failing the execution with
+     *            {@code ExceedMaxAsyncJobsException}
+     * @param cql
+     * @param bindValues
+     * @throws InterruptedException
+     * @since 0.4.0
+     */
+    public void executeAsync(FutureCallback<ResultSet> callback, long permitTimeoutMs, String cql,
+            Object... bindValues) throws InterruptedException {
+        if (permitTimeoutMs <= 0) {
+            executeAsync(callback, cql, bindValues);
+        } else if (!asyncSemaphore.tryAcquire(permitTimeoutMs, TimeUnit.MILLISECONDS)) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(CqlUtils.executeAsync(getSession(), cql, bindValues),
+                        wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param permitTimeoutMs
+     *            wait up to this milliseconds before failing the execution with
+     *            {@code ExceedMaxAsyncJobsException}
+     * @param cql
+     * @param bindValues
+     * @throws InterruptedException
+     * @since 0.4.0
+     */
+    public void executeAsync(FutureCallback<ResultSet> callback, long permitTimeoutMs, String cql,
+            Map<String, Object> bindValues) throws InterruptedException {
+        if (permitTimeoutMs <= 0) {
+            executeAsync(callback, cql, bindValues);
+        } else if (!asyncSemaphore.tryAcquire(permitTimeoutMs, TimeUnit.MILLISECONDS)) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(CqlUtils.executeAsync(getSession(), cql, bindValues),
+                        wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param permitTimeoutMs
+     *            wait up to this milliseconds before failing the execution with
+     *            {@code ExceedMaxAsyncJobsException}
+     * @param cql
+     * @param consistencyLevel
+     * @param bindValues
+     * @throws InterruptedException
+     * @since 0.4.0
+     */
+    public void executeAsync(FutureCallback<ResultSet> callback, long permitTimeoutMs, String cql,
+            ConsistencyLevel consistencyLevel, Object... bindValues) throws InterruptedException {
+        if (permitTimeoutMs <= 0) {
+            executeAsync(callback, cql, consistencyLevel, bindValues);
+        } else if (!asyncSemaphore.tryAcquire(permitTimeoutMs, TimeUnit.MILLISECONDS)) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(
+                        CqlUtils.executeAsync(getSession(), cql, consistencyLevel, bindValues),
+                        wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param permitTimeoutMs
+     *            wait up to this milliseconds before failing the execution with
+     *            {@code ExceedMaxAsyncJobsException}
+     * @param cql
+     * @param consistencyLevel
+     * @param bindValues
+     * @throws InterruptedException
+     * @since 0.4.0
+     */
+    public void executeAsync(FutureCallback<ResultSet> callback, long permitTimeoutMs, String cql,
+            ConsistencyLevel consistencyLevel, Map<String, Object> bindValues)
+            throws InterruptedException {
+        if (permitTimeoutMs <= 0) {
+            executeAsync(callback, cql, consistencyLevel, bindValues);
+        } else if (!asyncSemaphore.tryAcquire(permitTimeoutMs, TimeUnit.MILLISECONDS)) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(
+                        CqlUtils.executeAsync(getSession(), cql, consistencyLevel, bindValues),
+                        wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param permitTimeoutMs
+     *            wait up to this milliseconds before failing the execution with
+     *            {@code ExceedMaxAsyncJobsException}
+     * @param stm
+     * @param bindValues
+     * @throws InterruptedException
+     * @since 0.4.0
+     */
+    public void executeAsync(FutureCallback<ResultSet> callback, long permitTimeoutMs,
+            PreparedStatement stm, Object... bindValues) throws InterruptedException {
+        if (permitTimeoutMs <= 0) {
+            executeAsync(callback, stm, bindValues);
+        } else if (!asyncSemaphore.tryAcquire(permitTimeoutMs, TimeUnit.MILLISECONDS)) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(CqlUtils.executeAsync(getSession(), stm, bindValues),
+                        wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param permitTimeoutMs
+     *            wait up to this milliseconds before failing the execution with
+     *            {@code ExceedMaxAsyncJobsException}
+     * @param stm
+     * @param bindValues
+     * @throws InterruptedException
+     * @since 0.4.0
+     */
+    public void executeAsync(FutureCallback<ResultSet> callback, long permitTimeoutMs,
+            PreparedStatement stm, Map<String, Object> bindValues) throws InterruptedException {
+        if (permitTimeoutMs <= 0) {
+            executeAsync(callback, stm, bindValues);
+        } else if (!asyncSemaphore.tryAcquire(permitTimeoutMs, TimeUnit.MILLISECONDS)) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(CqlUtils.executeAsync(getSession(), stm, bindValues),
+                        wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param permitTimeoutMs
+     *            wait up to this milliseconds before failing the execution with
+     *            {@code ExceedMaxAsyncJobsException}
+     * @param stm
+     * @param consistencyLevel
+     * @param bindValues
+     * @throws InterruptedException
+     * @since 0.4.0
+     */
+    public void executeAsync(FutureCallback<ResultSet> callback, long permitTimeoutMs,
+            PreparedStatement stm, ConsistencyLevel consistencyLevel, Object... bindValues)
+            throws InterruptedException {
+        if (permitTimeoutMs <= 0) {
+            executeAsync(callback, stm, consistencyLevel, bindValues);
+        } else if (!asyncSemaphore.tryAcquire(permitTimeoutMs, TimeUnit.MILLISECONDS)) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(
+                        CqlUtils.executeAsync(getSession(), stm, consistencyLevel, bindValues),
+                        wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param permitTimeoutMs
+     *            wait up to this milliseconds before failing the execution with
+     *            {@code ExceedMaxAsyncJobsException}
+     * @param stm
+     * @param consistencyLevel
+     * @param bindValues
+     * @throws InterruptedException
+     * @since 0.4.0
+     */
+    public void executeAsync(FutureCallback<ResultSet> callback, long permitTimeoutMs,
+            PreparedStatement stm, ConsistencyLevel consistencyLevel,
+            Map<String, Object> bindValues) throws InterruptedException {
+        if (permitTimeoutMs <= 0) {
+            executeAsync(callback, stm, consistencyLevel, bindValues);
+        } else if (!asyncSemaphore.tryAcquire(permitTimeoutMs, TimeUnit.MILLISECONDS)) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(
+                        CqlUtils.executeAsync(getSession(), stm, consistencyLevel, bindValues),
+                        wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /*----------------------------------------------------------------------*/
+
+    private FutureCallback<ResultSet> wrapCallbackRow(FutureCallback<Row> callback) {
+        return new FutureCallback<ResultSet>() {
+            @Override
+            public void onSuccess(ResultSet result) {
+                try {
+                    callback.onSuccess(result.one());
+                } finally {
+                    asyncSemaphore.release();
+                }
+            }
+
+            @Override
+            public void onFailure(Throwable t) {
+                try {
+                    callback.onFailure(t);
+                } finally {
+                    asyncSemaphore.release();
+                }
+            }
+        };
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param cql
+     * @param bindValues
+     * @since 0.4.0
+     */
+    public void executeOneAsync(FutureCallback<Row> callback, String cql, Object... bindValues) {
+        if (!asyncSemaphore.tryAcquire()) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(CqlUtils.executeAsync(getSession(), cql, bindValues),
+                        wrapCallbackRow(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param cql
+     * @param bindValues
+     * @since 0.4.0
+     */
+    public void executeOneAsync(FutureCallback<Row> callback, String cql,
+            Map<String, Object> bindValues) {
+        if (!asyncSemaphore.tryAcquire()) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(CqlUtils.executeAsync(getSession(), cql, bindValues),
+                        wrapCallbackRow(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param cql
+     * @param consistencyLevel
+     * @param bindValues
+     * @since 0.4.0
+     */
+    public void executeOneAsync(FutureCallback<Row> callback, String cql,
+            ConsistencyLevel consistencyLevel, Object... bindValues) {
+        if (!asyncSemaphore.tryAcquire()) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(
+                        CqlUtils.executeAsync(getSession(), cql, consistencyLevel, bindValues),
+                        wrapCallbackRow(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param cql
+     * @param consistencyLevel
+     * @param bindValues
+     * @since 0.4.0
+     */
+    public void executeOneAsync(FutureCallback<Row> callback, String cql,
+            ConsistencyLevel consistencyLevel, Map<String, Object> bindValues) {
+        if (!asyncSemaphore.tryAcquire()) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(
+                        CqlUtils.executeAsync(getSession(), cql, consistencyLevel, bindValues),
+                        wrapCallbackRow(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param stm
+     * @param bindValues
+     * @since 0.4.0
+     */
+    public void executeOneAsync(FutureCallback<Row> callback, PreparedStatement stm,
+            Object... bindValues) {
+        if (!asyncSemaphore.tryAcquire()) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(CqlUtils.executeAsync(getSession(), stm, bindValues),
+                        wrapCallbackRow(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param stm
+     * @param bindValues
+     * @since 0.4.0
+     */
+    public void executeOneSsync(FutureCallback<Row> callback, PreparedStatement stm,
+            Map<String, Object> bindValues) {
+        if (!asyncSemaphore.tryAcquire()) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(CqlUtils.executeAsync(getSession(), stm, bindValues),
+                        wrapCallbackRow(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param stm
+     * @param consistencyLevel
+     * @param bindValues
+     * @since 0.4.0
+     */
+    public void executeOneAsync(FutureCallback<Row> callback, PreparedStatement stm,
+            ConsistencyLevel consistencyLevel, Object... bindValues) {
+        if (!asyncSemaphore.tryAcquire()) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(
+                        CqlUtils.executeAsync(getSession(), stm, consistencyLevel, bindValues),
+                        wrapCallbackRow(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param stm
+     * @param consistencyLevel
+     * @param bindValues
+     * @since 0.4.0
+     */
+    public void executeOneAsync(FutureCallback<Row> callback, PreparedStatement stm,
+            ConsistencyLevel consistencyLevel, Map<String, Object> bindValues) {
+        if (!asyncSemaphore.tryAcquire()) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(
+                        CqlUtils.executeAsync(getSession(), stm, consistencyLevel, bindValues),
+                        wrapCallbackRow(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param permitTimeoutMs
+     *            wait up to this milliseconds before failing the execution with
+     *            {@code ExceedMaxAsyncJobsException}
+     * @param cql
+     * @param bindValues
+     * @throws InterruptedException
+     * @since 0.4.0
+     */
+    public void executeOneAsync(FutureCallback<Row> callback, long permitTimeoutMs, String cql,
+            Object... bindValues) throws InterruptedException {
+        if (permitTimeoutMs <= 0) {
+            executeOneAsync(callback, cql, bindValues);
+        } else if (!asyncSemaphore.tryAcquire(permitTimeoutMs, TimeUnit.MILLISECONDS)) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(CqlUtils.executeAsync(getSession(), cql, bindValues),
+                        wrapCallbackRow(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param permitTimeoutMs
+     *            wait up to this milliseconds before failing the execution with
+     *            {@code ExceedMaxAsyncJobsException}
+     * @param cql
+     * @param bindValuess
+     * @throws InterruptedException
+     * @since 0.4.0
+     */
+    public void executeOneAsync(FutureCallback<Row> callback, long permitTimeoutMs, String cql,
+            Map<String, Object> bindValues) throws InterruptedException {
+        if (permitTimeoutMs <= 0) {
+            executeOneAsync(callback, cql, bindValues);
+        } else if (!asyncSemaphore.tryAcquire(permitTimeoutMs, TimeUnit.MILLISECONDS)) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(CqlUtils.executeAsync(getSession(), cql, bindValues),
+                        wrapCallbackRow(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param permitTimeoutMs
+     *            wait up to this milliseconds before failing the execution with
+     *            {@code ExceedMaxAsyncJobsException}
+     * @param cql
+     * @param consistencyLevel
+     * @param bindValues
+     * @throws InterruptedException
+     * @since 0.4.0
+     */
+    public void executeOneAsync(FutureCallback<Row> callback, long permitTimeoutMs, String cql,
+            ConsistencyLevel consistencyLevel, Object... bindValues) throws InterruptedException {
+        if (permitTimeoutMs <= 0) {
+            executeOneAsync(callback, cql, consistencyLevel, bindValues);
+        } else if (!asyncSemaphore.tryAcquire(permitTimeoutMs, TimeUnit.MILLISECONDS)) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(
+                        CqlUtils.executeAsync(getSession(), cql, consistencyLevel, bindValues),
+                        wrapCallbackRow(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param permitTimeoutMs
+     *            wait up to this milliseconds before failing the execution with
+     *            {@code ExceedMaxAsyncJobsException}
+     * @param cql
+     * @param consistencyLevel
+     * @param bindValues
+     * @throws InterruptedException
+     * @since 0.4.0
+     */
+    public void executeOneAsync(FutureCallback<Row> callback, long permitTimeoutMs, String cql,
+            ConsistencyLevel consistencyLevel, Map<String, Object> bindValues)
+            throws InterruptedException {
+        if (permitTimeoutMs <= 0) {
+            executeOneAsync(callback, cql, consistencyLevel, bindValues);
+        } else if (!asyncSemaphore.tryAcquire(permitTimeoutMs, TimeUnit.MILLISECONDS)) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(
+                        CqlUtils.executeAsync(getSession(), cql, consistencyLevel, bindValues),
+                        wrapCallbackRow(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param permitTimeoutMs
+     *            wait up to this milliseconds before failing the execution with
+     *            {@code ExceedMaxAsyncJobsException}
+     * @param stm
+     * @param bindValues
+     * @throws InterruptedException
+     * @since 0.4.0
+     */
+    public void executeOneAsync(FutureCallback<Row> callback, long permitTimeoutMs,
+            PreparedStatement stm, Object... bindValues) throws InterruptedException {
+        if (permitTimeoutMs <= 0) {
+            executeOneAsync(callback, stm, bindValues);
+        } else if (!asyncSemaphore.tryAcquire(permitTimeoutMs, TimeUnit.MILLISECONDS)) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(CqlUtils.executeAsync(getSession(), stm, bindValues),
+                        wrapCallbackRow(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param permitTimeoutMs
+     *            wait up to this milliseconds before failing the execution with
+     *            {@code ExceedMaxAsyncJobsException}
+     * @param stm
+     * @param bindValues
+     * @throws InterruptedException
+     * @since 0.4.0
+     */
+    public void executeOneAsync(FutureCallback<Row> callback, long permitTimeoutMs,
+            PreparedStatement stm, Map<String, Object> bindValues) throws InterruptedException {
+        if (permitTimeoutMs <= 0) {
+            executeOneAsync(callback, stm, bindValues);
+        } else if (!asyncSemaphore.tryAcquire(permitTimeoutMs, TimeUnit.MILLISECONDS)) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(CqlUtils.executeAsync(getSession(), stm, bindValues),
+                        wrapCallbackRow(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param permitTimeoutMs
+     *            wait up to this milliseconds before failing the execution with
+     *            {@code ExceedMaxAsyncJobsException}
+     * @param stm
+     * @param consistencyLevel
+     * @param bindValues
+     * @throws InterruptedException
+     * @since 0.4.0
+     */
+    public void executeOneAsync(FutureCallback<Row> callback, long permitTimeoutMs,
+            PreparedStatement stm, ConsistencyLevel consistencyLevel, Object... bindValues)
+            throws InterruptedException {
+        if (permitTimeoutMs <= 0) {
+            executeOneAsync(callback, stm, consistencyLevel, bindValues);
+        } else if (!asyncSemaphore.tryAcquire(permitTimeoutMs, TimeUnit.MILLISECONDS)) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(
+                        CqlUtils.executeAsync(getSession(), stm, consistencyLevel, bindValues),
+                        wrapCallbackRow(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param permitTimeoutMs
+     *            wait up to this milliseconds before failing the execution with
+     *            {@code ExceedMaxAsyncJobsException}
+     * @param stm
+     * @param consistencyLevel
+     * @param bindValues
+     * @throws InterruptedException
+     * @since 0.4.0
+     */
+    public void executeOneAsync(FutureCallback<Row> callback, long permitTimeoutMs,
+            PreparedStatement stm, ConsistencyLevel consistencyLevel,
+            Map<String, Object> bindValues) throws InterruptedException {
+        if (permitTimeoutMs <= 0) {
+            executeOneAsync(callback, stm, consistencyLevel, bindValues);
+        } else if (!asyncSemaphore.tryAcquire(permitTimeoutMs, TimeUnit.MILLISECONDS)) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(
+                        CqlUtils.executeAsync(getSession(), stm, consistencyLevel, bindValues),
+                        wrapCallbackRow(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /*----------------------------------------------------------------------*/
+
+    /**
+     * Execute a non-select batch statement.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param bStm
+     * @since 0.4.0
+     */
+    public void executeBatchNonSelect(BatchStatement bStm) {
+        CqlUtils.executeBatchNonSelect(getSession(), bStm);
+    }
+
+    /**
+     * Execute a non-select batch statement.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param bStm
+     * @param consistencyLevel
+     * @since 0.4.0
+     */
+    public void executeBatchNonSelect(BatchStatement bStm, ConsistencyLevel consistencyLevel) {
+        CqlUtils.executeBatchNonSelect(getSession(), bStm, consistencyLevel);
+    }
+
+    /**
+     * Execute a non-select batch statement.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param statements
+     * @since 0.4.0
+     */
+    public void executeBatchNonSelect(Statement... statements) {
+        CqlUtils.executeBatchNonSelect(getSession(), statements);
+    }
+
+    /**
+     * Execute a non-select batch statement.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param consistencyLevel
+     * @param statements
+     * @since 0.4.0
+     */
+    public void executeBatchNonSelect(ConsistencyLevel consistencyLevel, Statement... statements) {
+        CqlUtils.executeBatchNonSelect(getSession(), consistencyLevel, statements);
+    }
+
+    /**
+     * Execute a non-select batch statement.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param batchType
+     * @param statements
+     * @since 0.4.0
+     */
+    public void executeBatchNonSelect(BatchStatement.Type batchType, Statement... statements) {
+        CqlUtils.executeBatchNonSelect(getSession(), batchType, statements);
+    }
+
+    /**
+     * Execute a non-select batch statement.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param consistencyLevel
+     * @param batchType
+     * @param statements
+     * @since 0.4.0
+     */
+    public void executeBatchNonSelect(ConsistencyLevel consistencyLevel,
+            BatchStatement.Type batchType, Statement... statements) {
+        CqlUtils.executeBatchNonSelect(getSession(), consistencyLevel, batchType, statements);
+    }
+
+    /**
+     * Execute a batch statement.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param bStm
+     * @return
+     * @since 0.4.0
+     */
+    public ResultSet executeBatch(BatchStatement bStm) {
+        return CqlUtils.executeBatch(getSession(), bStm);
+    }
+
+    /**
+     * Execute a batch statement.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param bStm
+     * @param consistencyLevel
+     * @return
+     * @since 0.4.0
+     */
+    public ResultSet executeBatch(BatchStatement bStm, ConsistencyLevel consistencyLevel) {
+        return CqlUtils.executeBatch(getSession(), bStm, consistencyLevel);
+    }
+
+    /**
+     * Execute a batch statement.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param statements
+     * @return
+     * @since 0.4.0
+     */
+    public ResultSet executeBatch(Statement... statements) {
+        return CqlUtils.executeBatch(getSession(), statements);
+    }
+
+    /**
+     * Execute a batch statement.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param consistencyLevel
+     * @param statements
+     * @return
+     * @since 0.4.0
+     */
+    public ResultSet executeBatch(ConsistencyLevel consistencyLevel, Statement... statements) {
+        return CqlUtils.executeBatch(getSession(), consistencyLevel, statements);
+    }
+
+    /**
+     * Execute a batch statement.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param batchType
+     * @param statements
+     * @return
+     * @since 0.4.0
+     */
+    public ResultSet executeBatch(BatchStatement.Type batchType, Statement... statements) {
+        return CqlUtils.executeBatch(getSession(), batchType, statements);
+    }
+
+    /**
+     * Execute a batch statement.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param consistencyLevel
+     * @param batchType
+     * @param statements
+     * @return
+     * @since 0.4.0
+     */
+    public ResultSet executeBatch(ConsistencyLevel consistencyLevel, BatchStatement.Type batchType,
+            Statement... statements) {
+        return CqlUtils.executeBatch(getSession(), consistencyLevel, batchType, statements);
+    }
+
+    /**
+     * Async-execute a batch statement.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param bStm
+     * @since 0.4.0
+     */
+    public void executeBatchAsync(FutureCallback<ResultSet> callback, BatchStatement bStm) {
+        if (!asyncSemaphore.tryAcquire()) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(CqlUtils.executeBatchAsync(getSession(), bStm),
+                        wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a batch statement.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param bStm
+     * @param consistencyLevel
+     * @since 0.4.0
+     */
+    public void executeBatchAsync(FutureCallback<ResultSet> callback, BatchStatement bStm,
+            ConsistencyLevel consistencyLevel) {
+        if (!asyncSemaphore.tryAcquire()) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(
+                        CqlUtils.executeBatchAsync(getSession(), bStm, consistencyLevel),
+                        wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a batch statement.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param statements
+     * @since 0.4.0
+     */
+    public void executeBatchAsync(FutureCallback<ResultSet> callback, Statement... statements) {
+        if (!asyncSemaphore.tryAcquire()) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(CqlUtils.executeBatchAsync(getSession(), statements),
+                        wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a batch statement.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param consistencyLevel
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param statements
+     * @since 0.4.0
+     */
+    public void executeBatchAsync(FutureCallback<ResultSet> callback,
+            ConsistencyLevel consistencyLevel, Statement... statements) {
+        if (!asyncSemaphore.tryAcquire()) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(
+                        CqlUtils.executeBatchAsync(getSession(), consistencyLevel, statements),
+                        wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a batch statement.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param batchType
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param statements
+     * @since 0.4.0
+     */
+    public void executeBatchAsync(FutureCallback<ResultSet> callback, BatchStatement.Type batchType,
+            Statement... statements) {
+        if (!asyncSemaphore.tryAcquire()) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(CqlUtils.executeBatchAsync(getSession(), batchType, statements),
+                        wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a batch statement.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param consistencyLevel
+     * @param batchType
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param statements
+     * @since 0.4.0
+     */
+    public void executeBatchAsync(FutureCallback<ResultSet> callback,
+            ConsistencyLevel consistencyLevel, BatchStatement.Type batchType,
+            Statement... statements) {
+        if (!asyncSemaphore.tryAcquire()) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(CqlUtils.executeBatchAsync(getSession(), consistencyLevel,
+                        batchType, statements), wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a batch statement.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param permitTimeoutMs
+     *            wait up to this milliseconds before failing the execution with
+     *            {@code ExceedMaxAsyncJobsException}
+     * @param bStm
+     * @throws InterruptedException
+     * @since 0.4.0
+     */
+    public void executeBatchAsync(FutureCallback<ResultSet> callback, long permitTimeoutMs,
+            BatchStatement bStm) throws InterruptedException {
+        if (permitTimeoutMs <= 0) {
+            executeBatchAsync(callback, bStm);
+        } else if (!asyncSemaphore.tryAcquire(permitTimeoutMs, TimeUnit.MILLISECONDS)) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(CqlUtils.executeBatchAsync(getSession(), bStm),
+                        wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a batch statement.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param permitTimeoutMs
+     *            wait up to this milliseconds before failing the execution with
+     *            {@code ExceedMaxAsyncJobsException}
+     * @param bStm
+     * @param consistencyLevel
+     * @throws InterruptedException
+     * @since 0.4.0
+     */
+    public void executeBatchAsync(FutureCallback<ResultSet> callback, long permitTimeoutMs,
+            BatchStatement bStm, ConsistencyLevel consistencyLevel) throws InterruptedException {
+        if (permitTimeoutMs <= 0) {
+            executeBatchAsync(callback, bStm, consistencyLevel);
+        } else if (!asyncSemaphore.tryAcquire(permitTimeoutMs, TimeUnit.MILLISECONDS)) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(
+                        CqlUtils.executeBatchAsync(getSession(), bStm, consistencyLevel),
+                        wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a batch statement.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param permitTimeoutMs
+     *            wait up to this milliseconds before failing the execution with
+     *            {@code ExceedMaxAsyncJobsException}
+     * @param statements
+     * @throws InterruptedException
+     * @since 0.4.0
+     */
+    public void executeBatchAsync(FutureCallback<ResultSet> callback, long permitTimeoutMs,
+            Statement... statements) throws InterruptedException {
+        if (permitTimeoutMs <= 0) {
+            executeBatchAsync(callback, statements);
+        } else if (!asyncSemaphore.tryAcquire(permitTimeoutMs, TimeUnit.MILLISECONDS)) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(CqlUtils.executeBatchAsync(getSession(), statements),
+                        wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a batch statement.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param consistencyLevel
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param permitTimeoutMs
+     *            wait up to this milliseconds before failing the execution with
+     *            {@code ExceedMaxAsyncJobsException}
+     * @param statements
+     * @throws InterruptedException
+     * @since 0.4.0
+     */
+    public void executeBatchAsync(FutureCallback<ResultSet> callback, long permitTimeoutMs,
+            ConsistencyLevel consistencyLevel, Statement... statements)
+            throws InterruptedException {
+        if (permitTimeoutMs <= 0) {
+            executeBatchAsync(callback, consistencyLevel, statements);
+        } else if (!asyncSemaphore.tryAcquire(permitTimeoutMs, TimeUnit.MILLISECONDS)) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(
+                        CqlUtils.executeBatchAsync(getSession(), consistencyLevel, statements),
+                        wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a batch statement.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param batchType
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param permitTimeoutMs
+     *            wait up to this milliseconds before failing the execution with
+     *            {@code ExceedMaxAsyncJobsException}
+     * @param statements
+     * @throws InterruptedException
+     * @since 0.4.0
+     */
+    public void executeBatchAsync(FutureCallback<ResultSet> callback, long permitTimeoutMs,
+            BatchStatement.Type batchType, Statement... statements) throws InterruptedException {
+        if (permitTimeoutMs <= 0) {
+            executeBatchAsync(callback, batchType, statements);
+        } else if (!asyncSemaphore.tryAcquire(permitTimeoutMs, TimeUnit.MILLISECONDS)) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(CqlUtils.executeBatchAsync(getSession(), batchType, statements),
+                        wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a batch statement.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param consistencyLevel
+     * @param batchType
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param permitTimeoutMs
+     *            wait up to this milliseconds before failing the execution with
+     *            {@code ExceedMaxAsyncJobsException}
+     * @param statements
+     * @throws InterruptedException
+     * @since 0.4.0
+     */
+    public void executeBatchAsync(FutureCallback<ResultSet> callback, long permitTimeoutMs,
+            ConsistencyLevel consistencyLevel, BatchStatement.Type batchType,
+            Statement... statements) throws InterruptedException {
+        if (permitTimeoutMs <= 0) {
+            executeBatchAsync(callback, consistencyLevel, batchType, statements);
+        } else if (!asyncSemaphore.tryAcquire(permitTimeoutMs, TimeUnit.MILLISECONDS)) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                Futures.addCallback(CqlUtils.executeBatchAsync(getSession(), consistencyLevel,
+                        batchType, statements), wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
 }

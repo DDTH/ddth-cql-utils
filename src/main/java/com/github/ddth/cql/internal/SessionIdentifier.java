@@ -1,8 +1,15 @@
 package com.github.ddth.cql.internal;
 
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
 import org.apache.commons.lang3.builder.ToStringBuilder;
+
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 
 /**
  * For internal use.
@@ -11,11 +18,77 @@ import org.apache.commons.lang3.builder.ToStringBuilder;
  * @since 0.1.0
  */
 public class SessionIdentifier extends ClusterIdentifier {
-    public String keyspace;
 
-    public SessionIdentifier(String hostsAndPorts, String username, String password,
+    private static LoadingCache<String[], SessionIdentifier> cache = CacheBuilder.newBuilder()
+            .expireAfterAccess(3600, TimeUnit.SECONDS)
+            .build(new CacheLoader<String[], SessionIdentifier>() {
+                @Override
+                public SessionIdentifier load(String[] key) {
+                    return new SessionIdentifier(key[0], key[1], key[2], key[3], key[4]);
+                }
+            });
+
+    /**
+     * Helper method to get an instance of {@link SessionIdentifier}.
+     * 
+     * @param hostsAndPorts
+     * @param username
+     * @param password
+     * @param keyspace
+     * @return
+     */
+    public static SessionIdentifier getInstance(String hostsAndPorts, String username,
+            String password, String keyspace) {
+        return getInstance(hostsAndPorts, username, password, null, keyspace);
+    }
+
+    /**
+     * Helper method to get an instance of {@link SessionIdentifier}.
+     * 
+     * @param hostsAndPorts
+     * @param username
+     * @param password
+     * @param authorizationId
+     * @param keyspace
+     * @return
+     */
+    public static SessionIdentifier getInstance(String hostsAndPorts, String username,
+            String password, String authorizationId, String keyspace) {
+        String[] key = { hostsAndPorts, username, password, authorizationId, keyspace };
+        try {
+            return cache.get(key);
+        } catch (ExecutionException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public final String keyspace;
+
+    /**
+     * 
+     * @param hostsAndPorts
+     * @param username
+     * @param password
+     * @param keyspace
+     */
+    protected SessionIdentifier(String hostsAndPorts, String username, String password,
             String keyspace) {
-        super(hostsAndPorts, username, password);
+        // TODO cache SessionIdentifier
+        this(hostsAndPorts, username, password, null, keyspace);
+    }
+
+    /**
+     * 
+     * @param hostsAndPorts
+     * @param usernameF
+     * @param password
+     * @param authorizationId
+     *            DSE's proxied user/role id (used with DSE only)
+     * @param keyspace
+     */
+    protected SessionIdentifier(String hostsAndPorts, String username, String password,
+            String authorizationId, String keyspace) {
+        super(hostsAndPorts, username, password, authorizationId);
         this.keyspace = keyspace;
     }
 

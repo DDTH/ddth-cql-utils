@@ -14,19 +14,18 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.lang3.StringUtils;
 
+import com.datastax.driver.core.AuthProvider;
 import com.datastax.driver.core.BatchStatement;
 import com.datastax.driver.core.BoundStatement;
 import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.CodecRegistry;
 import com.datastax.driver.core.Configuration;
 import com.datastax.driver.core.ConsistencyLevel;
-import com.datastax.driver.core.HostDistance;
 import com.datastax.driver.core.MetricsOptions;
 import com.datastax.driver.core.NettyOptions;
 import com.datastax.driver.core.PoolingOptions;
@@ -52,12 +51,14 @@ import com.datastax.driver.core.policies.Policies;
 import com.datastax.driver.core.policies.ReconnectionPolicy;
 import com.datastax.driver.core.policies.RetryPolicy;
 import com.datastax.driver.core.policies.SpeculativeExecutionPolicy;
+import com.datastax.driver.dse.DseCluster;
+import com.datastax.driver.dse.DseSession;
+import com.datastax.driver.dse.auth.DsePlainTextAuthProvider;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.cache.RemovalListener;
-import com.google.common.cache.RemovalNotification;
 
 /**
  * Cassandra utility class.
@@ -180,6 +181,8 @@ public class CqlUtils {
      * Build a new Cassandra cluster instance.
      * 
      * @param hostsAndPorts
+     *            format: "host1:port1,host2,host3:port3". If no port is
+     *            specified, the {@link #DEFAULT_CASSANDRA_PORT} is used.
      * @param username
      * @param password
      * @param configuration
@@ -210,60 +213,6 @@ public class CqlUtils {
     }
 
     /**
-     * Build a new Cassandra cluster instance.
-     * 
-     * @param hostsAndPorts
-     *            format: "host1:port1,host2,host3:port3". If no port is
-     *            specified, the {@link #DEFAULT_CASSANDRA_PORT} is used.
-     * @param username
-     * @param password
-     * @param poolingOptions
-     * @param reconnectionPolicy
-     * @param retryPolicy
-     * @return
-     * @since 0.2.4
-     * @deprecated since 0.3.0
-     */
-    @Deprecated
-    public static Cluster newCluster(String hostsAndPorts, String username, String password,
-            PoolingOptions poolingOptions, ReconnectionPolicy reconnectionPolicy,
-            RetryPolicy retryPolicy) {
-        Cluster.Builder builder = Cluster.builder();
-        if (!StringUtils.isBlank(username)) {
-            builder = builder.withCredentials(username, password);
-        }
-        Collection<InetSocketAddress> contactPointsWithPorts = new HashSet<InetSocketAddress>();
-        String[] hostAndPortArr = StringUtils.split(hostsAndPorts, ", ");
-        for (String hostAndPort : hostAndPortArr) {
-            String[] tokens = StringUtils.split(hostAndPort, ':');
-            String host = tokens[0];
-            int port = tokens.length > 1 ? Integer.parseInt(tokens[1]) : DEFAULT_CASSANDRA_PORT;
-            contactPointsWithPorts.add(new InetSocketAddress(host, port));
-        }
-        builder = builder.addContactPointsWithPorts(contactPointsWithPorts);
-
-        if (poolingOptions == null) {
-            poolingOptions = new PoolingOptions();
-            poolingOptions.setCoreConnectionsPerHost(HostDistance.LOCAL, 2);
-            poolingOptions.setMaxConnectionsPerHost(HostDistance.LOCAL, 4);
-            poolingOptions.setCoreConnectionsPerHost(HostDistance.REMOTE, 1);
-            poolingOptions.setMaxConnectionsPerHost(HostDistance.REMOTE, 2);
-        }
-        builder.withPoolingOptions(poolingOptions);
-
-        if (reconnectionPolicy != null) {
-            builder.withReconnectionPolicy(reconnectionPolicy);
-        }
-
-        if (retryPolicy != null) {
-            builder.withRetryPolicy(retryPolicy);
-        }
-
-        Cluster cluster = builder.build();
-        return cluster;
-    }
-
-    /**
      * Create a new session for a cluster, initializes it and sets the keyspace
      * to the provided one.
      * 
@@ -275,7 +224,87 @@ public class CqlUtils {
      * @throws IllegalStateException
      */
     public static Session newSession(Cluster cluster, String keyspace) {
-        return cluster.connect(keyspace);
+        return cluster.connect(StringUtils.isBlank(keyspace) ? null : keyspace);
+    }
+
+    /*----------------------------------------------------------------------*/
+    /**
+     * Build a new DSE cluster instance.
+     * 
+     * @param hostsAndPorts
+     *            format: "host1:port1,host2,host3:port3". If no port is
+     *            specified, the {@link #DEFAULT_CASSANDRA_PORT} is used.
+     * @param username
+     * @param password
+     * @param proxiedUser
+     *            DSE allows a user to connect as another user or role, provide the name of the
+     *            user/role you want to connect as via this parameter
+     * @return
+     * @since 0.4.0
+     */
+    public static DseCluster newDseCluster(String hostsAndPorts, String username, String password,
+            String proxiedUser) {
+        return newDseCluster(hostsAndPorts, username, password, proxiedUser, null);
+    }
+
+    /**
+     * Build a new DSE cluster instance.
+     * 
+     * @param hostsAndPorts
+     *            format: "host1:port1,host2,host3:port3". If no port is
+     *            specified, the {@link #DEFAULT_CASSANDRA_PORT} is used.
+     * @param username
+     * @param password
+     * @param proxiedUser
+     *            DSE allows a user to connect as another user or role, provide the name of the
+     *            user/role you want to connect as via this parameter
+     * @param configuration
+     * @return
+     * @since 0.4.0
+     */
+    public static DseCluster newDseCluster(String hostsAndPorts, String username, String password,
+            String proxiedUser, Configuration configuration) {
+        DseCluster.Builder builder = DseCluster.builder();
+        if (!StringUtils.isBlank(username)) {
+            AuthProvider authProvider;
+            if (StringUtils.isBlank(proxiedUser)) {
+                authProvider = new DsePlainTextAuthProvider(username, password);
+            } else {
+                authProvider = new DsePlainTextAuthProvider(username, password, proxiedUser);
+            }
+            builder = builder.withAuthProvider(authProvider);
+        }
+        Collection<InetSocketAddress> contactPointsWithPorts = new HashSet<InetSocketAddress>();
+        String[] hostAndPortArr = StringUtils.split(hostsAndPorts, ";, ");
+        for (String hostAndPort : hostAndPortArr) {
+            String[] tokens = StringUtils.split(hostAndPort, ':');
+            String host = tokens[0];
+            int port = tokens.length > 1 ? Integer.parseInt(tokens[1]) : DEFAULT_CASSANDRA_PORT;
+            contactPointsWithPorts.add(new InetSocketAddress(host, port));
+        }
+        builder = builder.addContactPointsWithPorts(contactPointsWithPorts);
+
+        buildPolicies(configuration, builder);
+        buildOptions(configuration, builder);
+
+        DseCluster cluster = builder.build();
+        return cluster;
+    }
+
+    /**
+     * Create a new session for a DSE cluster, initializes it and sets the keyspace
+     * to the provided one.
+     * 
+     * @param cluster
+     * @param keyspace
+     * @return
+     * @since 0.4.0
+     * @throws NoHostAvailableException
+     * @throws AuthenticationException
+     * @throws IllegalStateException
+     */
+    public static DseSession newDseSession(DseCluster cluster, String keyspace) {
+        return cluster.connect(StringUtils.isBlank(keyspace) ? null : keyspace);
     }
 
     /*----------------------------------------------------------------------*/
@@ -285,16 +314,12 @@ public class CqlUtils {
      */
     private static LoadingCache<Cluster, Cache<String, PreparedStatement>> cachePreparedStms = CacheBuilder
             .newBuilder().expireAfterAccess(3600, TimeUnit.SECONDS)
-            .removalListener(new RemovalListener<Cluster, Cache<String, PreparedStatement>>() {
+            .removalListener(
+                    (RemovalListener<Cluster, Cache<String, PreparedStatement>>) notification -> notification
+                            .getValue().invalidateAll())
+            .build(new CacheLoader<Cluster, Cache<String, PreparedStatement>>() {
                 @Override
-                public void onRemoval(
-                        RemovalNotification<Cluster, Cache<String, PreparedStatement>> notification) {
-                    notification.getValue().invalidateAll();
-                }
-            }).build(new CacheLoader<Cluster, Cache<String, PreparedStatement>>() {
-                @Override
-                public Cache<String, PreparedStatement> load(final Cluster cluster)
-                        throws Exception {
+                public Cache<String, PreparedStatement> load(Cluster cluster) {
                     Cache<String, PreparedStatement> _cache = CacheBuilder.newBuilder()
                             .expireAfterAccess(3600, TimeUnit.SECONDS).build();
                     return _cache;
@@ -309,15 +334,10 @@ public class CqlUtils {
      * @return
      * @since 0.2.0
      */
-    public static PreparedStatement prepareStatement(final Session session, final String cql) {
+    public static PreparedStatement prepareStatement(Session session, String cql) {
         try {
             Cache<String, PreparedStatement> _cache = cachePreparedStms.get(session.getCluster());
-            return _cache.get(cql, new Callable<PreparedStatement>() {
-                @Override
-                public PreparedStatement call() throws Exception {
-                    return session.prepare(cql);
-                }
-            });
+            return _cache.get(cql, () -> session.prepare(cql));
         } catch (ExecutionException e) {
             Throwable t = e.getCause();
             throw t instanceof RuntimeException ? (RuntimeException) t : new RuntimeException(t);
@@ -329,8 +349,8 @@ public class CqlUtils {
      * 
      * @since 0.2.5
      */
-    private static PreparedStatement ensurePrepareStatement(final Session session,
-            final PreparedStatement pstm) {
+    private static PreparedStatement ensurePrepareStatement(Session session,
+            PreparedStatement pstm) {
         final String cql = pstm.getQueryString();
         return prepareStatement(session, cql);
     }
@@ -1023,6 +1043,7 @@ public class CqlUtils {
      * @param bindValues
      * @return
      * @since 0.2.3
+     * @deprecated since 0.4.0, use {@link #executeAsync(Session, String, Object...)}
      */
     public static ResultSetFuture executeNonSelectAsync(Session session, String cql,
             Object... bindValues) {
@@ -1037,6 +1058,7 @@ public class CqlUtils {
      * @param bindValues
      * @return
      * @since 0.3.0
+     * @deprecated since 0.4.0, use {@link #executeAsync(Session, String, Map)}
      */
     public static ResultSetFuture executeNonSelectAsync(Session session, String cql,
             Map<String, Object> bindValues) {
@@ -1052,6 +1074,8 @@ public class CqlUtils {
      * @param bindValues
      * @return
      * @since 0.2.3
+     * @deprecated since 0.4.0, use
+     *             {@link #executeAsync(Session, String, ConsistencyLevel, Object)}
      */
     public static ResultSetFuture executeNonSelectAsync(Session session, String cql,
             ConsistencyLevel consistencyLevel, Object... bindValues) {
@@ -1068,6 +1092,8 @@ public class CqlUtils {
      * @param bindValues
      * @return
      * @since 0.3.0
+     * @deprecated since 0.4.0, use
+     *             {@link #executeAsync(Session, String, ConsistencyLevel, Map)}
      */
     public static ResultSetFuture executeNonSelectAsync(Session session, String cql,
             ConsistencyLevel consistencyLevel, Map<String, Object> bindValues) {
@@ -1083,6 +1109,8 @@ public class CqlUtils {
      * @param bindValues
      * @return
      * @since 0.2.3
+     * @deprecated since 0.4.0, use
+     *             {@link #executeAsync(Session, PreparedStatement, Object...)}
      */
     public static ResultSetFuture executeNonSelectAsync(Session session, PreparedStatement stm,
             Object... bindValues) {
@@ -1097,6 +1125,8 @@ public class CqlUtils {
      * @param bindValues
      * @return
      * @since 0.3.0
+     * @deprecated since 0.4.0, use
+     *             {@link #executeAsync(Session, PreparedStatement, Map)}
      */
     public static ResultSetFuture executeNonSelectAsync(Session session, PreparedStatement stm,
             Map<String, Object> bindValues) {
@@ -1112,6 +1142,8 @@ public class CqlUtils {
      * @param bindValues
      * @return
      * @since 0.2.3
+     * @deprecated since 0.4.0, use
+     *             {@link #executeAsync(Session, PreparedStatement, ConsistencyLevel, Object...)}
      */
     public static ResultSetFuture executeNonSelectAsync(Session session, PreparedStatement stm,
             ConsistencyLevel consistencyLevel, Object... bindValues) {
@@ -1128,6 +1160,8 @@ public class CqlUtils {
      * @param bindValues
      * @return
      * @since 0.3.0
+     * @deprecated since 0.4.0, use
+     *             {@link #executeAsync(Session, PreparedStatement, ConsistencyLevel, Map)}
      */
     public static ResultSetFuture executeNonSelectAsync(Session session, PreparedStatement stm,
             ConsistencyLevel consistencyLevel, Map<String, Object> bindValues) {
@@ -1143,6 +1177,7 @@ public class CqlUtils {
      * @param bindValues
      * @return
      * @since 0.2.6
+     * @deprecated since 0.4.0
      */
     private static ResultSetFuture _executeNonSelectAsync(Session session, PreparedStatement stm,
             Object... bindValues) {
@@ -1158,6 +1193,7 @@ public class CqlUtils {
      * @param bindValues
      * @return
      * @since 0.3.0
+     * @deprecated since 0.4.0
      */
     private static ResultSetFuture _executeNonSelectAsync(Session session, PreparedStatement stm,
             Map<String, Object> bindValues) {
@@ -1174,6 +1210,7 @@ public class CqlUtils {
      * @param bindValues
      * @return
      * @since 0.2.6
+     * @deprecated since 0.4.0
      */
     private static ResultSetFuture _executeNonSelectAsync(Session session, PreparedStatement stm,
             ConsistencyLevel consistencyLevel, Object... bindValues) {
@@ -1198,6 +1235,7 @@ public class CqlUtils {
      * @param bindValues
      * @return
      * @since 0.3.0
+     * @deprecated since 0.4.0
      */
     private static ResultSetFuture _executeNonSelectAsync(Session session, PreparedStatement stm,
             ConsistencyLevel consistencyLevel, Map<String, Object> bindValues) {
