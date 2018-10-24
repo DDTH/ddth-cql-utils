@@ -95,7 +95,7 @@ public class DseSessionManager extends SessionManager {
      */
     @Override
     protected DseCluster createCluster(ClusterIdentifier ci) {
-        return CqlUtils.newDseCluster(ci.hostsAndPorts, ci.username, ci.password,
+        return DseUtils.newDseCluster(ci.hostsAndPorts, ci.username, ci.password,
                 ci.authorizationId, getConfiguration());
     }
 
@@ -104,7 +104,7 @@ public class DseSessionManager extends SessionManager {
      */
     @Override
     protected DseSession createSession(Cluster cluster, String keyspace) {
-        return CqlUtils.newDseSession((DseCluster) cluster, keyspace);
+        return DseUtils.newDseSession((DseCluster) cluster, keyspace);
     }
 
     /**

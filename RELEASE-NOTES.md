@@ -1,5 +1,10 @@
 # ddth-cql-utils release notes
 
+## 0.4.0.1 - 2018-10-24
+
+- New class `DseUtils`: try to fix the bug that DSE driver is loaded unnecessarily.
+
+
 ## 0.4.0 - 2018-10-21
 
 - Add support for DataStax Enterprise: new class `DseSessionManager`

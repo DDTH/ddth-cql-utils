@@ -11,7 +11,7 @@ Project home:
 
 ## Installation
 
-Latest release version: `0.4.0`. See [RELEASE-NOTES.md](RELEASE-NOTES.md).
+Latest release version: `0.4.0.1`. See [RELEASE-NOTES.md](RELEASE-NOTES.md).
 
 Maven dependency:
 
@@ -19,7 +19,7 @@ Maven dependency:
 <dependency>
 	<groupId>com.github.ddth</groupId>
 	<artifactId>ddth-cql-utils</artifactId>
-	<version>0.4.0</version>
+	<version>0.4.0.1</version>
 </dependency>
 ```
 
@@ -115,7 +115,7 @@ CqlUtils.executeNonSelect(session, pstm, params);
 CqlUtils.executeNonSelect(session, "INSERT INTO my_keyspace.product (sku, description) VALUES (:sku, :desc)", params);
 ```
 
-Note: Since `v0.4.0` running queries against the default `Cluster/Session` via `SessionManager` is preferred. The code snippet above can be rewritten as the following:
+Note: Since `v0.4.0.1` running queries against the default `Cluster/Session` via `SessionManager` is preferred. The code snippet above can be rewritten as the following:
 
 ```java
 // prepare a statement
