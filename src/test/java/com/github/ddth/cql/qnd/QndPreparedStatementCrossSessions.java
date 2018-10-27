@@ -1,7 +1,6 @@
 package com.github.ddth.cql.qnd;
 
 import java.util.Iterator;
-import java.util.UUID;
 
 import com.datastax.driver.core.PreparedStatement;
 import com.datastax.driver.core.ResultSet;
@@ -22,7 +21,7 @@ import com.github.ddth.cql.SessionManager;
  * CREATE TABLE tbldemo (id UUID, data TEXT, PRIMARY KEY (id)) WITH COMPACT STORAGE;
  * </pre>
  * 
- * @author btnguyen
+ * @author Thanh Nguyen <btnguyen2k@gmail.com>
  */
 public class QndPreparedStatementCrossSessions {
 

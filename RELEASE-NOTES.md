@@ -1,5 +1,25 @@
 # ddth-cql-utils release notes
 
+## 0.4.0.2 - 2018-10-27
+
+- Clean-up:
+  - Deprecate all methods `executeNonSelect(...)`, use `execute(...)` instead.
+  - Deprecate all methods `executeBatchNonSelect(...)`, use `execute(...)` or `executeBatch(...)` instead.
+  - Deprecate all methods `executeBatch(...)` and `executeBatchAsync(...)` that take a `BatchStatement`, use `execute(...)` or `executeAsync(....)` instead.
+- New methods:
+  - `ResultSet SessionManager.execute(Statement)` and `ResultSet CqlUtils.execute(Session, Statement)`
+  - `ResultSet SessionManager.execute(Statement, ConsistencyLevel)` and `ResultSet CqlUtils.execute(Session, Statement, ConsistencyLevel)`
+  - `Row SessionManager.executeOne(Statement)` and `Row CqlUtils.executeOne(Session, Statement)`
+  - `Row SessionManager.executeOne(Statement, ConsistencyLevel)` and `Row CqlUtils.executeOne(Session, Statement, ConsistencyLevel)`
+  - `Session.executeAsync(FutureCallback<ResultSet>, Statement)` and `ResultSetFuture CqlUtils.executeAsync(Session, Statement)`
+  - `Session.executeAsync(FutureCallback<ResultSet>, Statement, ConsistencyLevel)` and `ResultSetFuture CqlUtils.executeAsync(Session, Statement, ConsistencyLevel)`
+  - `Session.executeAsync(FutureCallback<ResultSet>,  long, Statement)` and `Session.executeAsync(FutureCallback<ResultSet>, long, Statement, ConsistencyLevel)`
+  - `Session.executeOneAsync(FutureCallback<Row>, Statement)` and `Session.executeOneAsync(FutureCallback<Row>, Statement, ConsistencyLevel)`
+  - `Session.executeOneAsync(FutureCallback<Row>, long, Statement)` and `Session.executeOneAsync(FutureCallback<Row>, long, Statement, ConsistencyLevel)`
+- New classes `RetryFutureCallback`, `RetryFutureCallbackResultSet` and `RetryFutureCallbackRow`
+- Bug fixes and enhancements
+
+
 ## 0.4.0.1 - 2018-10-24
 
 - New class `DseUtils`: try to fix the bug that DSE driver is loaded unnecessarily.

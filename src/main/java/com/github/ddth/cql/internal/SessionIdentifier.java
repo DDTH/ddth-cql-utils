@@ -30,11 +30,15 @@ public class SessionIdentifier extends ClusterIdentifier {
 
     /**
      * Helper method to get an instance of {@link SessionIdentifier}.
-     * 
+     *
      * @param hostsAndPorts
+     *            example {@code "localhost:9042,host2,host3:19042"}
      * @param username
+     *            username to authenticate against Cassandra cluster
      * @param password
+     *            password to authenticate against Cassandra cluster
      * @param keyspace
+     *            keyspace to connect to
      * @return
      */
     public static SessionIdentifier getInstance(String hostsAndPorts, String username,
@@ -44,12 +48,17 @@ public class SessionIdentifier extends ClusterIdentifier {
 
     /**
      * Helper method to get an instance of {@link SessionIdentifier}.
-     * 
+     *
      * @param hostsAndPorts
+     *            example {@code "localhost:9042,host2,host3:19042"}
      * @param username
+     *            username to authenticate against Cassandra cluster
      * @param password
+     *            password to authenticate against Cassandra cluster
      * @param authorizationId
+     *            DSE's proxied user/role id (used with DSE only)
      * @param keyspace
+     *            keyspace to connect to
      * @return
      */
     public static SessionIdentifier getInstance(String hostsAndPorts, String username,
@@ -65,11 +74,16 @@ public class SessionIdentifier extends ClusterIdentifier {
     public final String keyspace;
 
     /**
+     * Construct a new {@link SessionIdentifier}
      * 
      * @param hostsAndPorts
+     *            example {@code "localhost:9042,host2,host3:19042"}
      * @param username
+     *            username to authenticate against Cassandra cluster
      * @param password
+     *            password to authenticate against Cassandra cluster
      * @param keyspace
+     *            keyspace to connect to
      */
     protected SessionIdentifier(String hostsAndPorts, String username, String password,
             String keyspace) {
@@ -78,13 +92,18 @@ public class SessionIdentifier extends ClusterIdentifier {
     }
 
     /**
+     * Construct a new {@link SessionIdentifier}
      * 
      * @param hostsAndPorts
-     * @param usernameF
+     *            example {@code "localhost:9042,host2,host3:19042"}
+     * @param username
+     *            username to authenticate against Cassandra cluster
      * @param password
+     *            password to authenticate against Cassandra cluster
      * @param authorizationId
      *            DSE's proxied user/role id (used with DSE only)
      * @param keyspace
+     *            keyspace to connect to
      */
     protected SessionIdentifier(String hostsAndPorts, String username, String password,
             String authorizationId, String keyspace) {

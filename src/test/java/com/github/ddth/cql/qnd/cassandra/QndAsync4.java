@@ -8,7 +8,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import com.datastax.driver.core.PreparedStatement;
 import com.datastax.driver.core.ResultSet;
 import com.github.ddth.cql.SessionManager;
-import com.google.common.util.concurrent.FutureCallback;
+import com.github.ddth.cql.utils.RetryFutureCallbackResultSet;
 
 /**
  * Async-insert to table, limit number of async-jobs, retry when failed/wait for permit.
@@ -30,11 +30,12 @@ public class QndAsync4 {
             sm.setDefaultHostsAndPorts("localhost").setDefaultUsername("test")
                     .setDefaultPassword("test").setDefaultKeyspace(null);
             sm.init();
-            
-            sm.executeNonSelect("CREATE KEYSPACE IF NOT EXISTS test WITH REPLICATION={'class' : 'SimpleStrategy', 'replication_factor' : 1}");
 
-            sm.executeNonSelect("DROP TABLE IF EXISTS test.tbl_test");
-            sm.executeNonSelect("CREATE TABLE test.tbl_test (id text, name text, PRIMARY KEY(id))");
+            sm.execute(
+                    "CREATE KEYSPACE IF NOT EXISTS test WITH REPLICATION={'class' : 'SimpleStrategy', 'replication_factor' : 1}");
+
+            sm.execute("DROP TABLE IF EXISTS test.tbl_test");
+            sm.execute("CREATE TABLE test.tbl_test (id text, name text, PRIMARY KEY(id))");
 
             int NUM_ROWS = 100000;
             String[] idList = new String[NUM_ROWS];
@@ -52,31 +53,18 @@ public class QndAsync4 {
             for (int i = 0; i < NUM_ROWS; i++) {
                 String id = idList[i];
                 String name = nameList[i];
-                FutureCallback<ResultSet> future = new FutureCallback<ResultSet>() {
+                sm.executeAsync(new RetryFutureCallbackResultSet(sm, 1234, null, stm, id, name) {
                     @Override
                     public void onSuccess(@Nullable ResultSet result) {
                         counterSuccess.incrementAndGet();
                     }
 
                     @Override
-                    public void onFailure(Throwable t) {
+                    protected void onError(Throwable t) {
                         counterError.incrementAndGet();
-                        try {
-                            sm.executeAsync(this, 1234, stm, this.id, this.name);
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
-                        }
+                        t.printStackTrace();
                     }
-
-                    private String id, name;
-
-                    public FutureCallback<ResultSet> init(String id, String name) {
-                        this.id = id;
-                        this.name = name;
-                        return this;
-                    }
-                }.init(id, name);
-                sm.executeAsync(future, 1234, stm, id, name);
+                }, 1234, stm, id, name);
             }
             long t3 = System.currentTimeMillis();
             System.out.println("Generated [" + NUM_ROWS + "] entries in " + (t2 - t1) + " ms.");

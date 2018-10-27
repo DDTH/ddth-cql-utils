@@ -29,11 +29,11 @@ public class QndSync {
                     .setDefaultPassword("test").setDefaultKeyspace(null);
             sm.init();
 
-            sm.executeNonSelect(
+            sm.execute(
                     "CREATE KEYSPACE IF NOT EXISTS test WITH REPLICATION={'class' : 'SimpleStrategy', 'replication_factor' : 1}");
 
-            sm.executeNonSelect("DROP TABLE IF EXISTS test.tbl_test");
-            sm.executeNonSelect("CREATE TABLE test.tbl_test (id text, name text, PRIMARY KEY(id))");
+            sm.execute("DROP TABLE IF EXISTS test.tbl_test");
+            sm.execute("CREATE TABLE test.tbl_test (id text, name text, PRIMARY KEY(id))");
             Thread.sleep(5000);
 
             int NUM_ROWS = 100000;
@@ -52,7 +52,7 @@ public class QndSync {
             for (int i = 0; i < NUM_ROWS; i++) {
                 String id = idList[i];
                 String name = nameList[i];
-                CqlUtils.executeNonSelect(session, stm, id, name);
+                CqlUtils.execute(session, stm, id, name);
             }
             long t3 = System.currentTimeMillis();
             System.out.println("Generated [" + NUM_ROWS + "] entries in " + (t2 - t1) + " ms.");

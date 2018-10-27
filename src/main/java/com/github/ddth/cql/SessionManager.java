@@ -835,7 +835,7 @@ public class SessionManager implements Closeable {
      *            force create new session instance (the existing one, if any,
      *            will be closed)
      * @return
-     * @throws NoHostAvailableExceptions
+     * @throws NoHostAvailableException
      * @throws AuthenticationException
      * @since 0.2.2
      */
@@ -923,6 +923,7 @@ public class SessionManager implements Closeable {
      * @param cql
      * @param bindValues
      * @since 0.4.0
+     * @deprecated since 0.4.0.2 use {@link #execute(String, Object...)}
      */
     public void executeNonSelect(String cql, Object... bindValues) {
         CqlUtils.executeNonSelect(getSession(), cql, bindValues);
@@ -938,6 +939,7 @@ public class SessionManager implements Closeable {
      * @param cql
      * @param bindValues
      * @since 0.4.0
+     * @deprecated since 0.4.0.2 use {@link #execute(String, Map)}
      */
     public void executeNonSelect(String cql, Map<String, Object> bindValues) {
         CqlUtils.executeNonSelect(getSession(), cql, bindValues);
@@ -954,6 +956,7 @@ public class SessionManager implements Closeable {
      * @param consistencyLevel
      * @param bindValues
      * @since 0.4.0
+     * @deprecated since 0.4.0.2 use {@link #execute(String, ConsistencyLevel, Object...)}
      */
     public void executeNonSelect(String cql, ConsistencyLevel consistencyLevel,
             Object... bindValues) {
@@ -971,8 +974,9 @@ public class SessionManager implements Closeable {
      * @param consistencyLevel
      * @param bindValues
      * @since 0.4.0
+     * @deprecated since 0.4.0.2 use {@link #execute(String, ConsistencyLevel, Map)}
      */
-    public void executeNonSelect(Session session, String cql, ConsistencyLevel consistencyLevel,
+    public void executeNonSelect(String cql, ConsistencyLevel consistencyLevel,
             Map<String, Object> bindValues) {
         CqlUtils.executeNonSelect(getSession(), cql, consistencyLevel, bindValues);
     }
@@ -987,6 +991,7 @@ public class SessionManager implements Closeable {
      * @param stm
      * @param bindValues
      * @since 0.4.0
+     * @deprecated since 0.4.0.2 use {@link #execute(PreparedStatement, Object...)}
      */
     public void executeNonSelect(PreparedStatement stm, Object... bindValues) {
         CqlUtils.executeNonSelect(getSession(), stm, bindValues);
@@ -1002,6 +1007,7 @@ public class SessionManager implements Closeable {
      * @param stm
      * @param bindValues
      * @since 0.4.0
+     * @deprecated since 0.4.0.2 use {@link #execute(PreparedStatement, Map)}
      */
     public void executeNonSelect(PreparedStatement stm, Map<String, Object> bindValues) {
         CqlUtils.executeNonSelect(getSession(), stm, bindValues);
@@ -1018,6 +1024,8 @@ public class SessionManager implements Closeable {
      * @param consistencyLevel
      * @param bindValues
      * @since 0.4.0
+     * @deprecated since 0.4.0.2 use
+     *             {@link #execute(PreparedStatement, ConsistencyLevel, Object...)}
      */
     public void executeNonSelect(PreparedStatement stm, ConsistencyLevel consistencyLevel,
             Object... bindValues) {
@@ -1035,6 +1043,7 @@ public class SessionManager implements Closeable {
      * @param consistencyLevel
      * @param bindValues
      * @since 0.4.0
+     * @deprecated since 0.4.0.2 use {@link #execute(PreparedStatement, ConsistencyLevel, Map)}
      */
     public void executeNonSelect(PreparedStatement stm, ConsistencyLevel consistencyLevel,
             Map<String, Object> bindValues) {
@@ -1177,6 +1186,45 @@ public class SessionManager implements Closeable {
     }
 
     /**
+     * Execute a SELECT query and returns the {@link ResultSet}.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param stm
+     * @return
+     * @since 0.4.0.2
+     */
+    public ResultSet execute(Statement stm) {
+        return execute(stm, null);
+    }
+
+    /**
+     * Execute a SELECT query and returns the {@link ResultSet}.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param stm
+     * @param consistencyLevel
+     * @return
+     * @since 0.4.0.2
+     */
+    public ResultSet execute(Statement stm, ConsistencyLevel consistencyLevel) {
+        if (consistencyLevel != null) {
+            if (consistencyLevel == ConsistencyLevel.SERIAL
+                    || consistencyLevel == ConsistencyLevel.LOCAL_SERIAL) {
+                stm.setSerialConsistencyLevel(consistencyLevel);
+            } else {
+                stm.setConsistencyLevel(consistencyLevel);
+            }
+        }
+        return getSession().execute(stm);
+    }
+
+    /**
      * Execute a SELECT query and returns just one row.
      * 
      * <p>
@@ -1300,7 +1348,6 @@ public class SessionManager implements Closeable {
      * The default session (obtained via {@link #getSession()} is used to execute the query.
      * </p>
      * 
-     * @param session
      * @param stm
      * @param consistencyLevel
      * @param bindValues
@@ -1310,6 +1357,45 @@ public class SessionManager implements Closeable {
     public Row executeOne(PreparedStatement stm, ConsistencyLevel consistencyLevel,
             Map<String, Object> bindValues) {
         return CqlUtils.executeOne(getSession(), stm, consistencyLevel, bindValues);
+    }
+
+    /**
+     * Execute a SELECT query and returns just one row.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param stm
+     * @return
+     * @since 0.4.0.2
+     */
+    public Row executeOne(Statement stm) {
+        return executeOne(stm, null);
+    }
+
+    /**
+     * Execute a SELECT query and returns just one row.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param stm
+     * @param consistencyLevel
+     * @return
+     * @since 0.4.0.2
+     */
+    public Row executeOne(Statement stm, ConsistencyLevel consistencyLevel) {
+        if (consistencyLevel != null) {
+            if (consistencyLevel == ConsistencyLevel.SERIAL
+                    || consistencyLevel == ConsistencyLevel.LOCAL_SERIAL) {
+                stm.setSerialConsistencyLevel(consistencyLevel);
+            } else {
+                stm.setConsistencyLevel(consistencyLevel);
+            }
+        }
+        return getSession().execute(stm).one();
     }
 
     /*----------------------------------------------------------------------*/
@@ -1594,6 +1680,62 @@ public class SessionManager implements Closeable {
      *            {@link ExceedMaxAsyncJobsException} will be passed to
      *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
      *            {@link #getMaxAsyncJobs()}.
+     * @param stm
+     * @since 0.4.0.2
+     */
+    public void executeAsync(FutureCallback<ResultSet> callback, Statement stm) {
+        executeAsync(callback, stm, null);
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param stm
+     * @param consistencyLevel
+     * @since 0.4.0.2
+     */
+    public void executeAsync(FutureCallback<ResultSet> callback, Statement stm,
+            ConsistencyLevel consistencyLevel) {
+        if (!asyncSemaphore.tryAcquire()) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                if (consistencyLevel != null) {
+                    if (consistencyLevel == ConsistencyLevel.SERIAL
+                            || consistencyLevel == ConsistencyLevel.LOCAL_SERIAL) {
+                        stm.setSerialConsistencyLevel(consistencyLevel);
+                    } else {
+                        stm.setConsistencyLevel(consistencyLevel);
+                    }
+                }
+                Futures.addCallback(getSession().executeAsync(stm), wrapCallbackResultSet(callback),
+                        asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
      * @param permitTimeoutMs
      *            wait up to this milliseconds before failing the execution with
      *            {@code ExceedMaxAsyncJobsException}
@@ -1875,6 +2017,73 @@ public class SessionManager implements Closeable {
                 Futures.addCallback(
                         CqlUtils.executeAsync(getSession(), stm, consistencyLevel, bindValues),
                         wrapCallbackResultSet(callback), asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param permitTimeoutMs
+     *            wait up to this milliseconds before failing the execution with
+     *            {@code ExceedMaxAsyncJobsException}
+     * @param stm
+     * @throws InterruptedException
+     * @since 0.4.0.2
+     */
+    public void executeAsync(FutureCallback<ResultSet> callback, long permitTimeoutMs,
+            Statement stm) throws InterruptedException {
+        executeAsync(callback, permitTimeoutMs, stm, null);
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param permitTimeoutMs
+     *            wait up to this milliseconds before failing the execution with
+     *            {@code ExceedMaxAsyncJobsException}
+     * @param stm
+     * @param consistencyLevel
+     * @throws InterruptedException
+     * @since 0.4.0.2
+     */
+    public void executeAsync(FutureCallback<ResultSet> callback, long permitTimeoutMs,
+            Statement stm, ConsistencyLevel consistencyLevel) throws InterruptedException {
+        if (permitTimeoutMs <= 0) {
+            executeAsync(callback, stm, consistencyLevel);
+        } else if (!asyncSemaphore.tryAcquire(permitTimeoutMs, TimeUnit.MILLISECONDS)) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                if (consistencyLevel != null) {
+                    if (consistencyLevel == ConsistencyLevel.SERIAL
+                            || consistencyLevel == ConsistencyLevel.LOCAL_SERIAL) {
+                        stm.setSerialConsistencyLevel(consistencyLevel);
+                    } else {
+                        stm.setConsistencyLevel(consistencyLevel);
+                    }
+                }
+                Futures.addCallback(getSession().executeAsync(stm), wrapCallbackResultSet(callback),
+                        asyncExecutor);
             } catch (Exception e) {
                 asyncSemaphore.release();
                 LOGGER.error(e.getMessage(), e);
@@ -2074,7 +2283,7 @@ public class SessionManager implements Closeable {
      * @param bindValues
      * @since 0.4.0
      */
-    public void executeOneSsync(FutureCallback<Row> callback, PreparedStatement stm,
+    public void executeOneAsync(FutureCallback<Row> callback, PreparedStatement stm,
             Map<String, Object> bindValues) {
         if (!asyncSemaphore.tryAcquire()) {
             callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
@@ -2164,6 +2373,62 @@ public class SessionManager implements Closeable {
      *            {@link ExceedMaxAsyncJobsException} will be passed to
      *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
      *            {@link #getMaxAsyncJobs()}.
+     * @param stm
+     * @since 0.4.0.2
+     */
+    public void executeOneAsync(FutureCallback<Row> callback, Statement stm) {
+        executeOneAsync(callback, stm, null);
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param stm
+     * @param consistencyLevel
+     * @since 0.4.0.2
+     */
+    public void executeOneAsync(FutureCallback<Row> callback, Statement stm,
+            ConsistencyLevel consistencyLevel) {
+        if (!asyncSemaphore.tryAcquire()) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                if (consistencyLevel != null) {
+                    if (consistencyLevel == ConsistencyLevel.SERIAL
+                            || consistencyLevel == ConsistencyLevel.LOCAL_SERIAL) {
+                        stm.setSerialConsistencyLevel(consistencyLevel);
+                    } else {
+                        stm.setConsistencyLevel(consistencyLevel);
+                    }
+                }
+                Futures.addCallback(getSession().executeAsync(stm), wrapCallbackRow(callback),
+                        asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
      * @param permitTimeoutMs
      *            wait up to this milliseconds before failing the execution with
      *            {@code ExceedMaxAsyncJobsException}
@@ -2204,7 +2469,6 @@ public class SessionManager implements Closeable {
      *            wait up to this milliseconds before failing the execution with
      *            {@code ExceedMaxAsyncJobsException}
      * @param cql
-     * @param bindValuess
      * @throws InterruptedException
      * @since 0.4.0
      */
@@ -2452,6 +2716,73 @@ public class SessionManager implements Closeable {
         }
     }
 
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param permitTimeoutMs
+     *            wait up to this milliseconds before failing the execution with
+     *            {@code ExceedMaxAsyncJobsException}
+     * @param stm
+     * @throws InterruptedException
+     * @since 0.4.0.2
+     */
+    public void executeOneAsync(FutureCallback<Row> callback, long permitTimeoutMs, Statement stm)
+            throws InterruptedException {
+        executeOneAsync(callback, permitTimeoutMs, stm, null);
+    }
+
+    /**
+     * Async-execute a query.
+     * 
+     * <p>
+     * The default session (obtained via {@link #getSession()} is used to execute the query.
+     * </p>
+     * 
+     * @param callback
+     *            {@link ExceedMaxAsyncJobsException} will be passed to
+     *            {@link FutureCallback#onFailure(Throwable)} if number of async-jobs exceeds
+     *            {@link #getMaxAsyncJobs()}.
+     * @param permitTimeoutMs
+     *            wait up to this milliseconds before failing the execution with
+     *            {@code ExceedMaxAsyncJobsException}
+     * @param stm
+     * @param consistencyLevel
+     * @throws InterruptedException
+     * @since 0.4.0.2
+     */
+    public void executeOneAsync(FutureCallback<Row> callback, long permitTimeoutMs, Statement stm,
+            ConsistencyLevel consistencyLevel) throws InterruptedException {
+        if (permitTimeoutMs <= 0) {
+            executeOneAsync(callback, stm, consistencyLevel);
+        } else if (!asyncSemaphore.tryAcquire(permitTimeoutMs, TimeUnit.MILLISECONDS)) {
+            callback.onFailure(new ExceedMaxAsyncJobsException(maxSyncJobs));
+        } else {
+            try {
+                if (consistencyLevel != null) {
+                    if (consistencyLevel == ConsistencyLevel.SERIAL
+                            || consistencyLevel == ConsistencyLevel.LOCAL_SERIAL) {
+                        stm.setSerialConsistencyLevel(consistencyLevel);
+                    } else {
+                        stm.setConsistencyLevel(consistencyLevel);
+                    }
+                }
+                Futures.addCallback(getSession().executeAsync(stm), wrapCallbackRow(callback),
+                        asyncExecutor);
+            } catch (Exception e) {
+                asyncSemaphore.release();
+                LOGGER.error(e.getMessage(), e);
+            }
+        }
+    }
+
     /*----------------------------------------------------------------------*/
 
     /**
@@ -2463,6 +2794,7 @@ public class SessionManager implements Closeable {
      * 
      * @param bStm
      * @since 0.4.0
+     * @deprecated since 0.4.0.2 use {@link #execute(Statement)}
      */
     public void executeBatchNonSelect(BatchStatement bStm) {
         CqlUtils.executeBatchNonSelect(getSession(), bStm);
@@ -2478,6 +2810,7 @@ public class SessionManager implements Closeable {
      * @param bStm
      * @param consistencyLevel
      * @since 0.4.0
+     * @deprecated since 0.4.0.2 use {@link #execute(Statement, ConsistencyLevel)}
      */
     public void executeBatchNonSelect(BatchStatement bStm, ConsistencyLevel consistencyLevel) {
         CqlUtils.executeBatchNonSelect(getSession(), bStm, consistencyLevel);
@@ -2492,6 +2825,7 @@ public class SessionManager implements Closeable {
      * 
      * @param statements
      * @since 0.4.0
+     * @deprecated since 0.4.0.2 use {@link #executeBatch(Statement...)}
      */
     public void executeBatchNonSelect(Statement... statements) {
         CqlUtils.executeBatchNonSelect(getSession(), statements);
@@ -2507,6 +2841,7 @@ public class SessionManager implements Closeable {
      * @param consistencyLevel
      * @param statements
      * @since 0.4.0
+     * @deprecated since 0.4.0.2 use {@link #executeBatch(ConsistencyLevel, Statement...)}
      */
     public void executeBatchNonSelect(ConsistencyLevel consistencyLevel, Statement... statements) {
         CqlUtils.executeBatchNonSelect(getSession(), consistencyLevel, statements);
@@ -2522,6 +2857,7 @@ public class SessionManager implements Closeable {
      * @param batchType
      * @param statements
      * @since 0.4.0
+     * @deprecated since 0.4.0.2 use {@link #executeBatch(BatchStatement.Type, Statement...)}
      */
     public void executeBatchNonSelect(BatchStatement.Type batchType, Statement... statements) {
         CqlUtils.executeBatchNonSelect(getSession(), batchType, statements);
@@ -2538,6 +2874,8 @@ public class SessionManager implements Closeable {
      * @param batchType
      * @param statements
      * @since 0.4.0
+     * @deprecated since 0.4.0.2 use
+     *             {@link #executeBatch(ConsistencyLevel, BatchStatement.Type, Statement...)}
      */
     public void executeBatchNonSelect(ConsistencyLevel consistencyLevel,
             BatchStatement.Type batchType, Statement... statements) {
@@ -2554,6 +2892,7 @@ public class SessionManager implements Closeable {
      * @param bStm
      * @return
      * @since 0.4.0
+     * @deprecated since 0.4.0.2 use {@link #execute(Statement)}
      */
     public ResultSet executeBatch(BatchStatement bStm) {
         return CqlUtils.executeBatch(getSession(), bStm);
@@ -2570,6 +2909,7 @@ public class SessionManager implements Closeable {
      * @param consistencyLevel
      * @return
      * @since 0.4.0
+     * @deprecated since 0.4.0.2 use {@link #execute(Statement, ConsistencyLevel)}
      */
     public ResultSet executeBatch(BatchStatement bStm, ConsistencyLevel consistencyLevel) {
         return CqlUtils.executeBatch(getSession(), bStm, consistencyLevel);
@@ -2653,6 +2993,7 @@ public class SessionManager implements Closeable {
      *            {@link #getMaxAsyncJobs()}.
      * @param bStm
      * @since 0.4.0
+     * @deprecated since 0.4.0.2 use {@link #executeAsync(FutureCallback, Statement)}
      */
     public void executeBatchAsync(FutureCallback<ResultSet> callback, BatchStatement bStm) {
         if (!asyncSemaphore.tryAcquire()) {
@@ -2682,6 +3023,8 @@ public class SessionManager implements Closeable {
      * @param bStm
      * @param consistencyLevel
      * @since 0.4.0
+     * @deprecated since 0.4.0.2 use
+     *             {@link #executeAsync(FutureCallback, Statement, ConsistencyLevel)}
      */
     public void executeBatchAsync(FutureCallback<ResultSet> callback, BatchStatement bStm,
             ConsistencyLevel consistencyLevel) {
@@ -2837,6 +3180,7 @@ public class SessionManager implements Closeable {
      * @param bStm
      * @throws InterruptedException
      * @since 0.4.0
+     * @deprecated since 0.4.0.2 use {@link #executeAsync(FutureCallback, long, Statement)}
      */
     public void executeBatchAsync(FutureCallback<ResultSet> callback, long permitTimeoutMs,
             BatchStatement bStm) throws InterruptedException {
@@ -2873,6 +3217,8 @@ public class SessionManager implements Closeable {
      * @param consistencyLevel
      * @throws InterruptedException
      * @since 0.4.0
+     * @deprecated since 0.4.0.2 use
+     *             {@link #executeAsync(FutureCallback, long, Statement, ConsistencyLevel)}
      */
     public void executeBatchAsync(FutureCallback<ResultSet> callback, long permitTimeoutMs,
             BatchStatement bStm, ConsistencyLevel consistencyLevel) throws InterruptedException {

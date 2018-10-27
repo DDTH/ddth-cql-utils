@@ -11,7 +11,7 @@ import com.github.ddth.cql.SessionManager;
 /**
  * See what happens when host(s) is/are down!
  * 
- * @author btnguyen
+ * @author Thanh Nguyen <btnguyen2k@gmail.com>
  */
 public class QndHostDown {
 
@@ -30,10 +30,10 @@ public class QndHostDown {
             sm.init();
 
             // initialize data
-            sm.executeNonSelect(
+            sm.execute(
                     "CREATE KEYSPACE IF NOT EXISTS test WITH REPLICATION={'class' : 'SimpleStrategy', 'replication_factor' : 1}");
-            sm.executeNonSelect("DROP TABLE IF EXISTS test.tbl_test");
-            sm.executeNonSelect("CREATE TABLE test.tbl_test (id text, name text, PRIMARY KEY(id))");
+            sm.execute("DROP TABLE IF EXISTS test.tbl_test");
+            sm.execute("CREATE TABLE test.tbl_test (id text, name text, PRIMARY KEY(id))");
 
             long timestamp = 0;
             while (true) {

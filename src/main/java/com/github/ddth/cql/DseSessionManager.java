@@ -140,7 +140,7 @@ public class DseSessionManager extends SessionManager {
      * 
      * @param hostsAndPorts
      *            format: "host1:port1,host2,host3:port3". If no port is
-     *            specified, the {@link #DEFAULT_CASSANDRA_PORT} is used.
+     *            specified, the {@link CqlUtils#DEFAULT_CASSANDRA_PORT} is used.
      * @param username
      * @param password
      * @param authorizationId

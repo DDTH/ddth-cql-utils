@@ -8,7 +8,7 @@ import com.github.ddth.cql.SessionManager;
 /**
  * CqlUtils should correctly re-prepare the statement.
  * 
- * @author btnguyen
+ * @author Thanh Nguyen <btnguyen2k@gmail.com>
  */
 public class QndPreparedStatementCrossSessions2 {
 

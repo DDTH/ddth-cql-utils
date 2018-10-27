@@ -32,8 +32,11 @@ public class ClusterIdentifier {
      * Helper method to get an instance of {@link ClusterIdentifier}.
      * 
      * @param hostsAndPorts
+     *            example {@code "localhost:9042,host2,host3:19042"}
      * @param username
+     *            username to authenticate against Cassandra cluster
      * @param password
+     *            password to authenticate against Cassandra cluster
      * @return
      */
     public static ClusterIdentifier getInstance(String hostsAndPorts, String username,
@@ -43,11 +46,15 @@ public class ClusterIdentifier {
 
     /**
      * Helper method to get an instance of {@link ClusterIdentifier}.
-     * 
+     *
      * @param hostsAndPorts
+     *            example {@code "localhost:9042,host2,host3:19042"}
      * @param username
+     *            username to authenticate against Cassandra cluster
      * @param password
+     *            password to authenticate against Cassandra cluster
      * @param authorizationId
+     *            DSE's proxied user/role id (used with DSE only)
      * @return
      */
     public static ClusterIdentifier getInstance(String hostsAndPorts, String username,
@@ -63,20 +70,28 @@ public class ClusterIdentifier {
     public final String hostsAndPorts, username, password, authorizationId;
 
     /**
+     * Construct a new {@link ClusterIdentifier}
      * 
      * @param hostsAndPorts
+     *            example {@code "localhost:9042,host2,host3:19042"}
      * @param username
+     *            username to authenticate against Cassandra cluster
      * @param password
+     *            password to authenticate against Cassandra cluster
      */
     protected ClusterIdentifier(String hostsAndPorts, String username, String password) {
         this(hostsAndPorts, username, password, null);
     }
 
     /**
+     * Construct a new {@link ClusterIdentifier}
      * 
      * @param hostsAndPorts
+     *            example {@code "localhost:9042,host2,host3:19042"}
      * @param username
+     *            username to authenticate against Cassandra cluster
      * @param password
+     *            password to authenticate against Cassandra cluster
      * @param authorizationId
      *            DSE's proxied user/role id (used with DSE only)
      */

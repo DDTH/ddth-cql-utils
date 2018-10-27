@@ -23,17 +23,17 @@ public class QndAsync {
         System.setProperty("org.slf4j.simpleLogger.showShortLogName", "false");
     }
 
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) {
         try (SessionManager sm = new SessionManager()) {
             sm.setDefaultHostsAndPorts("localhost").setDefaultUsername("test")
                     .setDefaultPassword("test").setDefaultKeyspace(null);
             sm.init();
 
-            sm.executeNonSelect(
+            sm.execute(
                     "CREATE KEYSPACE IF NOT EXISTS test WITH REPLICATION={'class' : 'SimpleStrategy', 'replication_factor' : 1}");
 
-            sm.executeNonSelect("DROP TABLE IF EXISTS test.tbl_test");
-            sm.executeNonSelect("CREATE TABLE test.tbl_test (id text, name text, PRIMARY KEY(id))");
+            sm.execute("DROP TABLE IF EXISTS test.tbl_test");
+            sm.execute("CREATE TABLE test.tbl_test (id text, name text, PRIMARY KEY(id))");
             Thread.sleep(5000);
 
             int NUM_ROWS = 100000;
@@ -70,8 +70,12 @@ public class QndAsync {
                 }
             }
             if (numRows < NUM_ROWS) {
-                Thread.sleep(5000);
+                Thread.sleep(25000);
             }
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
+            // e.printStackTrace();
+            System.exit(-1);
         }
     }
 

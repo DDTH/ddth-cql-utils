@@ -31,11 +31,11 @@ public class QndAsync2 {
                     .setDefaultPassword("test").setDefaultKeyspace(null);
             sm.init();
 
-            sm.executeNonSelect(
+            sm.execute(
                     "CREATE KEYSPACE IF NOT EXISTS test WITH REPLICATION={'class' : 'SimpleStrategy', 'replication_factor' : 1}");
 
-            sm.executeNonSelect("DROP TABLE IF EXISTS test.tbl_test");
-            sm.executeNonSelect("CREATE TABLE test.tbl_test (id text, name text, PRIMARY KEY(id))");
+            sm.execute("DROP TABLE IF EXISTS test.tbl_test");
+            sm.execute("CREATE TABLE test.tbl_test (id text, name text, PRIMARY KEY(id))");
 
             int NUM_ROWS = 100000;
             String[] idList = new String[NUM_ROWS];

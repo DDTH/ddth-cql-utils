@@ -11,7 +11,7 @@ Project home:
 
 ## Installation
 
-Latest release version: `0.4.0.1`. See [RELEASE-NOTES.md](RELEASE-NOTES.md).
+Latest release version: `0.4.0.2`. See [RELEASE-NOTES.md](RELEASE-NOTES.md).
 
 Maven dependency:
 
@@ -19,7 +19,7 @@ Maven dependency:
 <dependency>
 	<groupId>com.github.ddth</groupId>
 	<artifactId>ddth-cql-utils</artifactId>
-	<version>0.4.0.1</version>
+	<version>0.4.0.2</version>
 </dependency>
 ```
 
@@ -100,40 +100,40 @@ Notes:
 // prepare a statement
 PreparedStatement pstm = CqlUtils.prepareStatement(session, "INSERT INTO keyspace.table (col1, col2) VALUES (?, ?)");
 // execute a non-select query
-CqlUtils.executeNonSelect(session, pstm, value1, value2);
+CqlUtils.execute(session, pstm, value1, value2);
 
 // or shorthand for both
-CqlUtils.executeNonSelect(session, "INSERT INTO keyspace.table (col1, col2) VALUES (?, ?)", value1, value2);
+CqlUtils.execute(session, "INSERT INTO keyspace.table (col1, col2) VALUES (?, ?)", value1, value2);
 
 // named parameters are also supported (see: https://docs.datastax.com/en/developer/java-driver/3.6/manual/statements/prepared/)
 PreparedStatement pstm = CqlUtils.prepareStatement(session, "INSERT INTO my_keyspace.product (sku, description) VALUES (:sku, :desc)");
 Map<String, Object> params = new HashMap<>();
 params.put("sku", "324378");
 params.put("desc", "LCD screen");
-CqlUtils.executeNonSelect(session, pstm, params);
+CqlUtils.execute(session, pstm, params);
 // or:
-CqlUtils.executeNonSelect(session, "INSERT INTO my_keyspace.product (sku, description) VALUES (:sku, :desc)", params);
+CqlUtils.execute(session, "INSERT INTO my_keyspace.product (sku, description) VALUES (:sku, :desc)", params);
 ```
 
-Note: Since `v0.4.0.1` running queries against the default `Cluster/Session` via `SessionManager` is preferred. The code snippet above can be rewritten as the following:
+Note: Since `v0.4.0.2` running queries against the default `Cluster/Session` via `SessionManager` is preferred. The code snippet above can be rewritten as the following:
 
 ```java
 // prepare a statement
 PreparedStatement pstm = sm.prepareStatement("INSERT INTO keyspace.table (col1, col2) VALUES (?, ?)");
 // execute a non-select query
-sm.executeNonSelect(pstm, value1, value2);
+sm.execute(pstm, value1, value2);
 
 // or shorthand for both
-sm.executeNonSelect("INSERT INTO keyspace.table (col1, col2) VALUES (?, ?)", value1, value2);
+sm.execute("INSERT INTO keyspace.table (col1, col2) VALUES (?, ?)", value1, value2);
 
 // named parameters are also supported (see: https://docs.datastax.com/en/developer/java-driver/3.6/manual/statements/prepared/)
 PreparedStatement pstm = sm.prepareStatement("INSERT INTO my_keyspace.product (sku, description) VALUES (:sku, :desc)");
 Map<String, Object> params = new HashMap<>();
 params.put("sku", "324378");
 params.put("desc", "LCD screen");
-sm.executeNonSelect(pstm, params);
+sm.execute(pstm, params);
 // or:
-sm.executeNonSelect("INSERT INTO my_keyspace.product (sku, description) VALUES (:sku, :desc)", params);
+sm.execute("INSERT INTO my_keyspace.product (sku, description) VALUES (:sku, :desc)", params);
 ```
 
 Execute SELECT query and process result:
