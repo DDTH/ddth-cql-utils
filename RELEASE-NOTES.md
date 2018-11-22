@@ -1,5 +1,12 @@
 # ddth-cql-utils release notes
 
+## 0.4.0.3 - 2018-11-22
+
+- `SessionManager.executeAsync(...)` and `SessionManager.executeOneAsync(...)`: callback parameter can now be `null`.
+- Minor enhancements: default pooling config.
+- Clean-up deprecated methods.
+
+
 ## 0.4.0.2 - 2018-10-27
 
 - Clean-up:

@@ -11,7 +11,7 @@ Project home:
 
 ## Installation
 
-Latest release version: `0.4.0.2`. See [RELEASE-NOTES.md](RELEASE-NOTES.md).
+Latest release version: `0.4.0.3`. See [RELEASE-NOTES.md](RELEASE-NOTES.md).
 
 Maven dependency:
 
@@ -19,7 +19,7 @@ Maven dependency:
 <dependency>
 	<groupId>com.github.ddth</groupId>
 	<artifactId>ddth-cql-utils</artifactId>
-	<version>0.4.0.2</version>
+	<version>0.4.0.3</version>
 </dependency>
 ```
 
@@ -115,7 +115,7 @@ CqlUtils.execute(session, pstm, params);
 CqlUtils.execute(session, "INSERT INTO my_keyspace.product (sku, description) VALUES (:sku, :desc)", params);
 ```
 
-Note: Since `v0.4.0.2` running queries against the default `Cluster/Session` via `SessionManager` is preferred. The code snippet above can be rewritten as the following:
+Note: Since `v0.4.0.3` running queries against the default `Cluster/Session` via `SessionManager` is preferred. The code snippet above can be rewritten as the following:
 
 ```java
 // prepare a statement
@@ -272,6 +272,22 @@ If you use Cassandra-only features, `SessionManager` can work with DSE Server wi
 - `DseSessionManager.getCluster(...)` return `DseCluster` which is a sub-class of `Cluster`.
 - `DseSessionManager.getSession(...)` return `DseSession` which is a sub-class of `Session`.
 - DSE allows a user to connect as another user or role (["proxy authentication"](https://docs.datastax.com/en/developer/java-driver-dse/1.7/manual/auth/)). Two overload methods `getCluster(...)` and `getSession(...)` are introduced in `DseSessionManager` to support this feature.
+
+
+***`Cluster`'s default configurations setup by `SessionManager`***
+
+- `maxSyncJobs`: 100
+- `reconnectionPolicy`: `new ExponentialReconnectionPolicy(1000, 10 * 1000)`
+- `poolingOptions`:
+  - `connectionsPerHost(REMOTE, 1, 1)`, `maxRequestsPerConnection(REMOTE, 1024)`, `newConnectionThreshold(REMOTE, 256)`
+  - `connectionsPerHost(LOCAL, 1, 2)`, `maxRequestsPerConnection(LOCAL, 16 * 1024)`, `newConnectionThreshold(LOCAL, 12 * 1024)`
+  - `heartbeatIntervalSeconds`: 10
+  - `poolTimeoutMillis`: 1000
+- `queryOptions`:
+  - `consistencyLevel`: LOCAL_ONE
+  - `serialConsistencyLevel`: LOCAL_SERIAL
+  - `fetchSize`: 1024
+  - `defaultIdempotence`: false
 
 
 ### Notes
