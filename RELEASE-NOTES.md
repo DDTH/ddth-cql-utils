@@ -1,5 +1,13 @@
 # ddth-cql-utils release notes
 
+## 1.0.0 - 2019-05-09
+
+- Migrate to `Java 11`.
+- Upgrade to `Java Driver for Apache Cassandra v4.0.1` and `Java Driver for DataStax Enterprise v2.0.1`.
+  - A lot of API changes, see documents of [Java Driver for Apache Cassandra](https://docs.datastax.com/en/developer/java-driver/4.0/) and [Java Driver for DataStax Enterprise](https://docs.datastax.com/en/developer/java-driver-dse/2.0/) for more information.
+- Internal enhancements & improvements.
+
+
 ## 0.4.0.3 - 2018-11-22
 
 - `SessionManager.executeAsync(...)` and `SessionManager.executeOneAsync(...)`: callback parameter can now be `null`.

@@ -1,10 +1,14 @@
 package com.github.ddth.cql.qnd;
 
 import java.util.Iterator;
+import java.util.Random;
 
-import com.datastax.driver.core.ResultSet;
-import com.datastax.driver.core.Row;
-import com.datastax.driver.core.Session;
+import com.datastax.oss.driver.api.core.CqlSession;
+import com.datastax.oss.driver.api.core.config.DefaultDriverOption;
+import com.datastax.oss.driver.api.core.config.DriverConfigLoader;
+import com.datastax.oss.driver.api.core.config.ProgrammaticDriverConfigLoaderBuilder;
+import com.datastax.oss.driver.api.core.cql.ResultSet;
+import com.datastax.oss.driver.api.core.cql.Row;
 import com.github.ddth.cql.CqlUtils;
 import com.github.ddth.cql.SessionManager;
 
@@ -14,7 +18,6 @@ import com.github.ddth.cql.SessionManager;
  * @author Thanh Nguyen <btnguyen2k@gmail.com>
  */
 public class QndHostDown {
-
     static {
         System.setProperty("org.slf4j.simpleLogger.logFile", "System.out");
         System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "INFO");
@@ -24,9 +27,14 @@ public class QndHostDown {
     }
 
     public static void main(String[] args) throws Exception {
+        Random r = new Random(System.currentTimeMillis());
+        ProgrammaticDriverConfigLoaderBuilder dclBuilder = DriverConfigLoader.programmaticBuilder();
+        dclBuilder.withString(DefaultDriverOption.LOAD_BALANCING_LOCAL_DATACENTER, "datacenter1")
+                .withString(DefaultDriverOption.AUTH_PROVIDER_USER_NAME, "cassandra")
+                .withString(DefaultDriverOption.AUTH_PROVIDER_PASSWORD, "cassandra");
         try (SessionManager sm = new SessionManager()) {
-            sm.setDefaultHostsAndPorts("localhost").setDefaultUsername("test")
-                    .setDefaultPassword("test").setDefaultKeyspace(null);
+            sm.setConfigLoader(dclBuilder.build());
+            sm.setDefaultHostsAndPorts("localhost");
             sm.init();
 
             // initialize data
@@ -37,26 +45,26 @@ public class QndHostDown {
 
             long timestamp = 0;
             while (true) {
-                Session session = sm.getSession("localhost", "test", "test", null, false);
                 try {
+                    CqlSession session = sm.getSession(false);
+                    CqlUtils.execute(session, "UPDATE test.tbl_test SET name=? WHERE id='key'",
+                            String.valueOf(r.nextInt()));
                     ResultSet rs = CqlUtils.execute(session, "SELECT * FROM test.tbl_test");
                     Iterator<Row> it = rs.iterator();
                     while (it.hasNext()) {
                         Row row = it.next();
-                        System.out.println(row);
+                        System.out.println("Row: " + row);
                     }
 
                     timestamp = System.currentTimeMillis();
                     System.out.println("Session: " + session);
-                    session.close();
-                    Thread.sleep(2000);
+                    // session.close();
+                    Thread.sleep(r.nextInt(2000));
                 } catch (Throwable e) {
                     System.out.println("ERROR/" + (System.currentTimeMillis() - timestamp) + ": "
                             + e.getMessage());
-                    // e.printStackTrace();
-                    Thread.sleep(5000);
+                    Thread.sleep(r.nextInt(5000));
                 }
-
                 System.out.println();
             }
         }

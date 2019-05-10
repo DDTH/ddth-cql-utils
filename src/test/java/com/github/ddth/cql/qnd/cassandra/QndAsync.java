@@ -3,8 +3,11 @@ package com.github.ddth.cql.qnd.cassandra;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.StringUtils;
 
-import com.datastax.driver.core.PreparedStatement;
-import com.datastax.driver.core.Session;
+import com.datastax.oss.driver.api.core.CqlSession;
+import com.datastax.oss.driver.api.core.config.DefaultDriverOption;
+import com.datastax.oss.driver.api.core.config.DriverConfigLoader;
+import com.datastax.oss.driver.api.core.config.ProgrammaticDriverConfigLoaderBuilder;
+import com.datastax.oss.driver.api.core.cql.PreparedStatement;
 import com.github.ddth.cql.CqlUtils;
 import com.github.ddth.cql.SessionManager;
 
@@ -24,9 +27,13 @@ public class QndAsync {
     }
 
     public static void main(String[] args) {
+        ProgrammaticDriverConfigLoaderBuilder dclBuilder = DriverConfigLoader.programmaticBuilder();
+        dclBuilder.withString(DefaultDriverOption.LOAD_BALANCING_LOCAL_DATACENTER, "datacenter1")
+                .withString(DefaultDriverOption.AUTH_PROVIDER_USER_NAME, "cassandra")
+                .withString(DefaultDriverOption.AUTH_PROVIDER_PASSWORD, "cassandra");
         try (SessionManager sm = new SessionManager()) {
-            sm.setDefaultHostsAndPorts("localhost").setDefaultUsername("test")
-                    .setDefaultPassword("test").setDefaultKeyspace(null);
+            sm.setConfigLoader(dclBuilder.build());
+            sm.setDefaultHostsAndPorts("localhost");
             sm.init();
 
             sm.execute(
@@ -46,7 +53,7 @@ public class QndAsync {
                 nameList[i] = RandomStringUtils.randomAlphanumeric(64);
             }
             long t2 = System.currentTimeMillis();
-            Session session = sm.getSession();
+            CqlSession session = sm.getSession();
             PreparedStatement stm = CqlUtils.prepareStatement(session,
                     "INSERT INTO test.tbl_test (id, name) VALUES (?, ?)");
             for (int i = 0; i < NUM_ROWS; i++) {
@@ -55,8 +62,13 @@ public class QndAsync {
                 CqlUtils.executeAsync(session, stm, id, name);
             }
             long t3 = System.currentTimeMillis();
-            System.out.println("Generated [" + NUM_ROWS + "] entries in " + (t2 - t1) + " ms.");
-            System.out.println("Inserted  [" + NUM_ROWS + "] entries in " + (t3 - t2) + " ms.");
+            long d1 = t2 - t1, d2 = t3 - t2;
+            double r1 = Math.round(NUM_ROWS * 10000.0 / d1) / 10.0,
+                    r2 = Math.round(NUM_ROWS * 10000.0 / d2) / 10.0;
+            System.out.println(
+                    "Generate [" + NUM_ROWS + "] entries in " + d1 + " ms; " + r1 + " items/s");
+            System.out.println(
+                    "Insert   [" + NUM_ROWS + "] entries in " + d2 + " ms; " + r2 + " items/s");
 
             long numRows = sm.executeOne("SELECT count(*) FROM test.tbl_test").getLong(0);
             System.out.println("Num rows: " + numRows);

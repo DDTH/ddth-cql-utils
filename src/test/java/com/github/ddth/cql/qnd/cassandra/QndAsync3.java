@@ -3,12 +3,13 @@ package com.github.ddth.cql.qnd.cassandra;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.commons.lang3.RandomStringUtils;
-import org.checkerframework.checker.nullness.qual.Nullable;
-
-import com.datastax.driver.core.PreparedStatement;
-import com.datastax.driver.core.ResultSet;
+import com.datastax.oss.driver.api.core.config.DefaultDriverOption;
+import com.datastax.oss.driver.api.core.config.DriverConfigLoader;
+import com.datastax.oss.driver.api.core.config.ProgrammaticDriverConfigLoaderBuilder;
+import com.datastax.oss.driver.api.core.cql.AsyncResultSet;
+import com.datastax.oss.driver.api.core.cql.PreparedStatement;
 import com.github.ddth.cql.SessionManager;
-import com.github.ddth.cql.utils.RetryFutureCallbackResultSet;
+import com.github.ddth.cql.utils.RetryCallbackResultSet;
 
 /**
  * Async-insert to table, limit number of async-jobs, retry when failed.
@@ -26,9 +27,13 @@ public class QndAsync3 {
     }
 
     public static void main(String[] args) throws Exception {
+        ProgrammaticDriverConfigLoaderBuilder dclBuilder = DriverConfigLoader.programmaticBuilder();
+        dclBuilder.withString(DefaultDriverOption.LOAD_BALANCING_LOCAL_DATACENTER, "datacenter1")
+                .withString(DefaultDriverOption.AUTH_PROVIDER_USER_NAME, "cassandra")
+                .withString(DefaultDriverOption.AUTH_PROVIDER_PASSWORD, "cassandra");
         try (SessionManager sm = new SessionManager()) {
-            sm.setDefaultHostsAndPorts("localhost").setDefaultUsername("test")
-                    .setDefaultPassword("test").setDefaultKeyspace(null);
+            sm.setConfigLoader(dclBuilder.build());
+            sm.setDefaultHostsAndPorts("localhost");
             sm.init();
 
             sm.execute(
@@ -53,9 +58,9 @@ public class QndAsync3 {
             for (int i = 0; i < NUM_ROWS; i++) {
                 String id = idList[i];
                 String name = nameList[i];
-                sm.executeAsync(new RetryFutureCallbackResultSet(sm, 0, null, stm, id, name) {
+                sm.executeAsync(new RetryCallbackResultSet(sm, 0, null, stm, id, name) {
                     @Override
-                    public void onSuccess(@Nullable ResultSet result) {
+                    public void onSuccess(AsyncResultSet result) {
                         counterSuccess.incrementAndGet();
                     }
 
@@ -67,8 +72,13 @@ public class QndAsync3 {
                 }, stm, id, name);
             }
             long t3 = System.currentTimeMillis();
-            System.out.println("Generated [" + NUM_ROWS + "] entries in " + (t2 - t1) + " ms.");
-            System.out.println("Inserted  [" + NUM_ROWS + "] entries in " + (t3 - t2) + " ms.");
+            long d1 = t2 - t1, d2 = t3 - t2;
+            double r1 = Math.round(NUM_ROWS * 10000.0 / d1) / 10.0,
+                    r2 = Math.round(NUM_ROWS * 10000.0 / d2) / 10.0;
+            System.out.println(
+                    "Generate [" + NUM_ROWS + "] entries in " + d1 + " ms; " + r1 + " items/s");
+            System.out.println(
+                    "Insert   [" + NUM_ROWS + "] entries in " + d2 + " ms; " + r2 + " items/s");
 
             System.out.println("Success: " + counterSuccess);
             System.out.println("Error  : " + counterError);

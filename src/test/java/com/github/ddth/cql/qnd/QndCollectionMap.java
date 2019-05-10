@@ -3,15 +3,13 @@ package com.github.ddth.cql.qnd;
 import java.util.HashMap;
 import java.util.Map;
 
-import com.datastax.driver.core.Row;
+import com.datastax.oss.driver.api.core.cql.Row;
 import com.github.ddth.cql.SessionManager;
 
 public class QndCollectionMap {
-
     public static void main(String[] args) throws Exception {
         try (SessionManager sm = new SessionManager()) {
-            sm.setDefaultHostsAndPorts("localhost").setDefaultUsername("test")
-                    .setDefaultPassword("test").setDefaultKeyspace("test");
+            sm.setDefaultKeyspace("test");
             sm.init();
 
             sm.execute("DROP TABLE IF EXISTS tbl_cmap");
@@ -27,5 +25,4 @@ public class QndCollectionMap {
             System.out.println(row.getMap("v", String.class, String.class));
         }
     }
-
 }

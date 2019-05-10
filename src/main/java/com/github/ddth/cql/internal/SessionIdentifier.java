@@ -1,114 +1,91 @@
 package com.github.ddth.cql.internal;
 
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-
+import com.datastax.oss.driver.shaded.guava.common.cache.CacheBuilder;
+import com.datastax.oss.driver.shaded.guava.common.cache.CacheLoader;
+import com.datastax.oss.driver.shaded.guava.common.cache.LoadingCache;
+import com.github.ddth.cql.CqlUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
 import org.apache.commons.lang3.builder.ToStringBuilder;
 
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.CacheLoader;
-import com.google.common.cache.LoadingCache;
+import java.net.InetSocketAddress;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 
 /**
  * For internal use.
- * 
+ *
  * @author Thanh Ba Nguyen <btnguyen2k@gmail.com>
  * @since 0.1.0
  */
-public class SessionIdentifier extends ClusterIdentifier {
+public class SessionIdentifier {
+    private static LoadingCache<String[], SessionIdentifier> cache;
 
-    private static LoadingCache<String[], SessionIdentifier> cache = CacheBuilder.newBuilder()
-            .expireAfterAccess(3600, TimeUnit.SECONDS)
-            .build(new CacheLoader<String[], SessionIdentifier>() {
-                @Override
-                public SessionIdentifier load(String[] key) {
-                    return new SessionIdentifier(key[0], key[1], key[2], key[3], key[4]);
-                }
-            });
-
-    /**
-     * Helper method to get an instance of {@link SessionIdentifier}.
-     *
-     * @param hostsAndPorts
-     *            example {@code "localhost:9042,host2,host3:19042"}
-     * @param username
-     *            username to authenticate against Cassandra cluster
-     * @param password
-     *            password to authenticate against Cassandra cluster
-     * @param keyspace
-     *            keyspace to connect to
-     * @return
-     */
-    public static SessionIdentifier getInstance(String hostsAndPorts, String username,
-            String password, String keyspace) {
-        return getInstance(hostsAndPorts, username, password, null, keyspace);
+    static {
+        cache = CacheBuilder.newBuilder().expireAfterAccess(3600, TimeUnit.SECONDS).build(new CacheLoader<>() {
+            @Override
+            public SessionIdentifier load(String[] key) {
+                return new SessionIdentifier(key[0], key[1]);
+            }
+        });
     }
 
     /**
      * Helper method to get an instance of {@link SessionIdentifier}.
      *
-     * @param hostsAndPorts
-     *            example {@code "localhost:9042,host2,host3:19042"}
-     * @param username
-     *            username to authenticate against Cassandra cluster
-     * @param password
-     *            password to authenticate against Cassandra cluster
-     * @param authorizationId
-     *            DSE's proxied user/role id (used with DSE only)
-     * @param keyspace
-     *            keyspace to connect to
+     * @param hostsAndPorts example {@code "localhost:9042,host2,host3:19042"}
+     * @param keyspace      keyspace to connect to
      * @return
      */
-    public static SessionIdentifier getInstance(String hostsAndPorts, String username,
-            String password, String authorizationId, String keyspace) {
-        String[] key = { hostsAndPorts, username, password, authorizationId, keyspace };
+    public static SessionIdentifier getInstance(String hostsAndPorts, String keyspace) {
+        String[] key = { hostsAndPorts, keyspace };
         try {
             return cache.get(key);
         } catch (ExecutionException e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException(e.getCause());
         }
     }
 
+    public final String hostsAndPorts;
     public final String keyspace;
 
     /**
      * Construct a new {@link SessionIdentifier}
-     * 
-     * @param hostsAndPorts
-     *            example {@code "localhost:9042,host2,host3:19042"}
-     * @param username
-     *            username to authenticate against Cassandra cluster
-     * @param password
-     *            password to authenticate against Cassandra cluster
-     * @param keyspace
-     *            keyspace to connect to
+     *
+     * @param hostsAndPorts example {@code "localhost:9042,host2,host3:19042"}
+     * @param keyspace      keyspace to connect to
      */
-    protected SessionIdentifier(String hostsAndPorts, String username, String password,
-            String keyspace) {
-        // TODO cache SessionIdentifier
-        this(hostsAndPorts, username, password, null, keyspace);
+    protected SessionIdentifier(String hostsAndPorts, String keyspace) {
+        this.hostsAndPorts = hostsAndPorts;
+        this.keyspace = keyspace;
     }
 
+    private List<InetSocketAddress> contactPointsWithPorts = null;
+
     /**
-     * Construct a new {@link SessionIdentifier}
-     * 
-     * @param hostsAndPorts
-     *            example {@code "localhost:9042,host2,host3:19042"}
-     * @param username
-     *            username to authenticate against Cassandra cluster
-     * @param password
-     *            password to authenticate against Cassandra cluster
-     * @param authorizationId
-     *            DSE's proxied user/role id (used with DSE only)
-     * @param keyspace
-     *            keyspace to connect to
+     * Parse {@link #hostsAndPorts} to list of {@link InetSocketAddress}.
+     *
+     * @return
+     * @since 1.0.0
      */
-    protected SessionIdentifier(String hostsAndPorts, String username, String password,
-            String authorizationId, String keyspace) {
-        super(hostsAndPorts, username, password, authorizationId);
-        this.keyspace = keyspace;
+    synchronized public List<InetSocketAddress> parseHostsAndPorts() {
+        if (contactPointsWithPorts == null) {
+            contactPointsWithPorts = new ArrayList<>();
+            String[] hostAndPortArr = StringUtils.split(hostsAndPorts, ";, ");
+            if (hostAndPortArr != null) {
+                for (String hostAndPort : hostAndPortArr) {
+                    String[] tokens = StringUtils.split(hostAndPort, ':');
+                    String host = tokens[0];
+                    int port = tokens.length > 1 ? Integer.parseInt(tokens[1]) : CqlUtils.DEFAULT_CASSANDRA_PORT;
+                    contactPointsWithPorts.add(new InetSocketAddress(host, port));
+                }
+            }
+        }
+        return Collections.unmodifiableList(contactPointsWithPorts);
     }
 
     /**
@@ -117,7 +94,7 @@ public class SessionIdentifier extends ClusterIdentifier {
     @Override
     public int hashCode() {
         HashCodeBuilder hcb = new HashCodeBuilder(19, 81);
-        hcb.append(keyspace).append(super.hashCode());
+        hcb.append(hostsAndPorts).append(keyspace);
         return hcb.hashCode();
     }
 
@@ -130,10 +107,9 @@ public class SessionIdentifier extends ClusterIdentifier {
             return true;
         }
         if (obj instanceof SessionIdentifier) {
-            SessionIdentifier other = (SessionIdentifier) obj;
+            SessionIdentifier that = (SessionIdentifier) obj;
             EqualsBuilder eq = new EqualsBuilder();
-            eq.appendSuper(super.equals(obj));
-            eq.append(keyspace, other.keyspace);
+            eq.append(hostsAndPorts, that.hostsAndPorts).append(keyspace, that.keyspace);
             return eq.isEquals();
         }
         return false;
@@ -145,7 +121,7 @@ public class SessionIdentifier extends ClusterIdentifier {
     @Override
     public String toString() {
         ToStringBuilder tsb = new ToStringBuilder(this);
-        tsb.append("keyspace", keyspace).appendSuper(super.toString());
+        tsb.append("hostsAndPorts", hostsAndPorts).append("keyspace", keyspace);
         return tsb.toString();
     }
 }

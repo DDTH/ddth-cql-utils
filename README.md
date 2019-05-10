@@ -6,12 +6,12 @@ and simplify the usage of CQL.
 Project home:
 [https://github.com/DDTH/ddth-cql-utils](https://github.com/DDTH/ddth-cql-utils)
 
-**`ddth-cql-utils` requires Java 8+ since v0.3.0**
+**`ddth-cql-utils` requires Java 11+ since v1.0.0, for Java 8, use v0.x.y**
 
 
 ## Installation
 
-Latest release version: `0.4.0.3`. See [RELEASE-NOTES.md](RELEASE-NOTES.md).
+Latest release version: `1.0.0`. See [RELEASE-NOTES.md](RELEASE-NOTES.md).
 
 Maven dependency:
 
@@ -19,120 +19,88 @@ Maven dependency:
 <dependency>
 	<groupId>com.github.ddth</groupId>
 	<artifactId>ddth-cql-utils</artifactId>
-	<version>0.4.0.3</version>
+	<version>1.0.0</version>
 </dependency>
 ```
 
-`ddth-cql-utils` supports [Datastax Java Driver for Apache Cassandra](https://docs.datastax.com/en/developer/java-driver/3.6/) as well as [DataStax Enterprise Java driver](https://docs.datastax.com/en/developer/java-driver-dse/1.7/). [`ddth-cql-utils' pom`](pom.xml) marks those drivers "optional", you need to include the dependencies for those drivers in your application.
-
-Datastax Java Driver for Apache Cassandra:
-
-```xml
-<dependency>
-    <groupId>com.datastax.cassandra</groupId>
-    <artifactId>cassandra-driver-core</artifactId>
-    <version>${version}</version>
-</dependency>
-```
-
-DataStax Enterprise Java driver:
-
-```xml
-<dependency>
-    <groupId>com.datastax.dse</groupId>
-    <artifactId>dse-java-driver-core</artifactId>
-    <version>${version}</version>
-</dependency>
-```
+`ddth-cql-utils` supports [Datastax Java Driver for Apache Cassandra](https://docs.datastax.com/en/developer/java-driver/4.0/) as well as [DataStax Enterprise Java driver](https://docs.datastax.com/en/developer/java-driver-dse/2.0/). [`ddth-cql-utils' pom`](pom.xml) marks those drivers "optional", you need to include the dependenc for those drivers in your application.
 
 
 ## Usage
 
-**Create and initialize `SessionManager`:**
+(See [working example code](src/test/java/com/github/ddth/cql/qnd))
+
+**Overall flow**
 
 ```java
+/* Create and initialize `SessionManager` */
 SessionManager sm = new SessionManager();
 
-/*
- * Optional: customize the SessionManager via SessionManager.setXXX() methods
- *
- * // limit maximun number of async-jobs
- * sm.setMaxAsyncJobs(10244);
- *
- * // value for the default Cluster/Session
- * sm.setDefaultHostsAndPorts("host1:9042,host2,host3:19042")
- *   .setDefaultUsername("cassandra")
- *   .setDefaultPassword("secret")
- *   .setDefaultKeyspace(null);
- *
- * Other settings: call SessionManager.setXXX()
- */
+//// Optional: customize the SessionManager
+// limit maximun number of async-jobs
+sm.setMaxAsyncJobs(1024);
+// default values to connect to Cassandra cluster
+sm.setDefaultHostsAndPorts("host1:9042,host2,host3:19042").setDefaultKeyspace("test");
+// override some configurations
+sm.setConfigLoader(DriverConfigLoader.fromFile("my-application.conf"));
 
 // remember to initialize the SessionManager
 sm.init(); 
+
+/*Obtain `CqlSession` and use it*/
+// obtain a CqlSession instance, specifying contact points and keyspace
+CqlSession session = sm.getSession("host1:port1,host2,host3:port3", keyspace);
+// obtain a CqlSession instance, using defaultHostsAndPorts and defaultKeyspace
+CqlSession defaultSession = sm.getSession();
+
+/*
+CqlSession instance is now ready to use.
+See [atastax Java Driver for Apache Cassandra (https://docs.datastax.com/en/developer/java-driver/4.0/) for usage manual.
+*/
+
+/* Before application exists: cleanup */
+sm.close(); //or sm.destroy();
 ```
 
-**Manage Cassandra `Cluster` and `Session` with `SessionManager`**
+**Performance Practices**
+
+- Use one `CqlSession` instance per keyspace throughout application life.
+Close `CqlSession` only when absolutely needed! `SessionManager` will close
+open `CqlSession` instances when `SessionManager` is closed.
+- `SessionManager` caches `CqlSession` instances,
+so it's safe to call `SessionManager.getSession(...)` multiple times with the same parameters.
+- If application works with multiple keyspaces,
+it is recommended to create a `CqlSession` with no default keyspace
+(e.g. `CqlSession session = sm.getSession("hostsAndPorts", null)`) and prefix table name
+with keyspace name in all queries (e.g. `session.execute("SELECT count(*) FROM my_keyspace.my_table")`).
+
+**Execute CQL Queries with SessionManager**
+
+Although CQL queries can be executed using obtained `CqlSession` instance, it is recommended to execute CQL using `SessionManager`.
+
+> `SessionManager` uses the `CqlSession` instance initialized with `defaultHostsAndPorts` and `defaultInstance` to execute CQL queries.
+
+Prepare and execute CQL:
 
 ```java
-// obtain a Cluster instance
-Cluster cluster = sm.getCluster("host1:port1,host2,host3:port3...", username, password);
-// defaultHostsAndPorts, defaultUsername and defaultPassword are used
-Cluster defaultCluster = sm.getCluster();
-
-// obtain a Session instance
-Session session = sm.getSession("host1:port1,host2,host3:port3...", username, password, keyspace);
-// defaultHostsAndPorts, defaultUsername, defaultPassword and defaultKeyspace are used
-Session defaultSession = sm.getSession();
-```
-
-Notes:
-
-- Use one `Cluster` instance per Cassandra physical cluster throughout application's life. Close `Cluster` instances only when absolutely needed! `SessionManager` will close open `Cluster`s when `SessionManager.destroy()` is called.
-- `SessionManager` caches `Cluster` instances, so it's safe to call `SessionManager.getCluster(...)` multiple times with the same parameters.
-- Use one `Session` instance per keyspace throughout application's life. Close `Session` instances only when absolutely needed! `SessionManager` will close open `Session`s when `SessionManager.destroy()` is called.
-- `SessionManager` caches `Session` instances, so it's safe to call `SessionManager.getSession(...)` multiple times with the same parameters.
-- If application works with multiple keyspaces, it is recommended to create a `Session` with no associated keyspace (`Session session = sm.getSession("hostsAndPorts", "username", "password", null)`) and prefix table name with keyspace name in all queries (e.g. `session.execute("SELECT count(*) FROM my_keyspace.my_table")`).
-
-**Working with CQL is easy with helper class `CqlUtils`**
-
-```java
-// prepare a statement
-PreparedStatement pstm = CqlUtils.prepareStatement(session, "INSERT INTO keyspace.table (col1, col2) VALUES (?, ?)");
-// execute a non-select query
-CqlUtils.execute(session, pstm, value1, value2);
-
-// or shorthand for both
-CqlUtils.execute(session, "INSERT INTO keyspace.table (col1, col2) VALUES (?, ?)", value1, value2);
-
-// named parameters are also supported (see: https://docs.datastax.com/en/developer/java-driver/3.6/manual/statements/prepared/)
-PreparedStatement pstm = CqlUtils.prepareStatement(session, "INSERT INTO my_keyspace.product (sku, description) VALUES (:sku, :desc)");
-Map<String, Object> params = new HashMap<>();
-params.put("sku", "324378");
-params.put("desc", "LCD screen");
-CqlUtils.execute(session, pstm, params);
-// or:
-CqlUtils.execute(session, "INSERT INTO my_keyspace.product (sku, description) VALUES (:sku, :desc)", params);
-```
-
-Note: Since `v0.4.0.3` running queries against the default `Cluster/Session` via `SessionManager` is preferred. The code snippet above can be rewritten as the following:
-
-```java
-// prepare a statement
 PreparedStatement pstm = sm.prepareStatement("INSERT INTO keyspace.table (col1, col2) VALUES (?, ?)");
-// execute a non-select query
 sm.execute(pstm, value1, value2);
 
-// or shorthand for both
+// or shorthand version
 sm.execute("INSERT INTO keyspace.table (col1, col2) VALUES (?, ?)", value1, value2);
+```
 
-// named parameters are also supported (see: https://docs.datastax.com/en/developer/java-driver/3.6/manual/statements/prepared/)
-PreparedStatement pstm = sm.prepareStatement("INSERT INTO my_keyspace.product (sku, description) VALUES (:sku, :desc)");
+Using [named parameters](https://docs.datastax.com/en/developer/java-driver/4.0/manual/core/statements/prepared/):
+
+```java
 Map<String, Object> params = new HashMap<>();
 params.put("sku", "324378");
 params.put("desc", "LCD screen");
+
+PreparedStatement pstm = sm.prepareStatement("INSERT INTO my_keyspace.product (sku, description) VALUES (:sku, :desc)");
 sm.execute(pstm, params);
-// or:
+
+// or shorthand version:
 sm.execute("INSERT INTO my_keyspace.product (sku, description) VALUES (:sku, :desc)", params);
 ```
 
@@ -145,6 +113,7 @@ ResultSet rs = sm.execute("SELECT sku, description FROM my_keyspace.product", va
 // consistency level can be specified for individual query
 ResultSet rs = sm.execute("SELECT sku, description FROM my_keyspace.product", ConsistencyLevel.LOCAL_ONE, params);
 
+// loop through the result
 for (Row row : rs) {
     System.out.println(row);
 }
@@ -155,161 +124,95 @@ Bind values manually and execute batch:
 ```java
 // bind by index
 PreparedStatement pstm = sm.prepareStatement("INSERT INTO my_keyspace.product (sku, description) VALUES (?, ?)");
-Statement stm1 = CqlUtils.bindValues(pstm, value1, value2);
+Statement stm1 = sm.bindValues(pstm, value1, value2);
 
 // or bind by name
 PreparedStatement pstm = sm.prepareStatement("INSERT INTO my_keyspace.product (sku, description) VALUES (:sku, :description)");
-Statement stm1 = CqlUtils.bindValues(pstm, value1, value2);
-
 Map<String, Object> valuesAndKeys = ...;
-Statement stm2 = CqlUtils.bindValues(pstm, valuesAndKeys);
+Statement stm2 = sm.bindValues(pstm, valuesAndKeys);
 
 // execute a batch of statements
-ResultSet rs = sm.executeBatch(stm1, stm2...);
+ResultSet rs = sm.executeBatch(stm1, stm2);
 ```
 
-Execute query asynchronously (see [https://docs.datastax.com/en/developer/java-driver/3.6/manual/async/](https://docs.datastax.com/en/developer/java-driver/3.6/manual/async/)):
+Execute query asynchronously (more information at [Datastax Manual Page](https://docs.datastax.com/en/developer/java-driver/4.0/manual/core/async/)):
 
 ```java
-import com.google.common.util.concurrent.*;
-
-// Use transform with an AsyncFunction to chain an async operation after another:
-ListenableFuture<ResultSet> resultSet = Futures.transform(session,
-    new AsyncFunction<Session, ResultSet>() {
-        public ListenableFuture<ResultSet> apply(Session session) throws Exception {
-            return CqlUtils.executeAsync(session, "SELECT release_version FROM system.local");
-        }
-    });
-
-// Use transform with a simple Function to apply a synchronous computation on the result:
-ListenableFuture<String> version = Futures.transform(resultSet,
-    new Function<ResultSet, String>() {
-        public String apply(ResultSet rs) {
-            return rs.one().getString("release_version");
-        }
-    });
-
-// Use a callback to perform an action once the future is complete:
-Futures.addCallback(version, new FutureCallback<String>() {
-    public void onSuccess(String version) {
-        System.out.printf("Cassandra version: %s%n", version);
+// execute a SELECT query asynchronously
+String cql = "SELECT * from keyspace.products WHERE sku=?";
+CqlSession session = sm.getSession(...);
+CompletionStage<AsyncResultSet> stage = CqlUtils.executeAsync(session, cql, "12345");
+stage.whenComplete((resultSet, error) -> {
+    if (error != null) {
+        error.printStackTrace();
+    } else {
+        System.out.println("First row: " + resultSet.one());
     }
+});
 
-    public void onFailure(Throwable t) {
-        System.out.printf("Failed to retrieve the version: %s%n",
-            t.getMessage());
+// or using callback to process result
+Callback<AsyncResultSet> callback = new Callback<>() {
+    public void onSuccess(AsyncResultSet result) {
+        System.out.println("First row: " + resultSet.one());
     }
-}, myCustomExecutor);
-```
-
-Or, a simpler way with `SessionManager`:
-
-```java
-import com.google.common.util.concurrent.*;
-
-FutureCallback<ResultSet> future = new FutureCallback<ResultSet>() {
-    @Override
-    public void onSuccess(ResultSet result) {
-        for (Row row : result) {
-            System.out.println(row);
-        }
-    }
-    
-    @Override
-    public void onFailure(Throwable t) {
-        t.printStacktrace();
+    public void void onFailure(Throwable t) {
+        t.printStackTrace();
     }
 };
-PreparedStatement stm = sm.prepareStatement("INSERT INTO my_keyspace.product (sku, description) VALUES (?, ?)");
-sm.executeAsync(future, stm, sku, desc);
+sm.executeAsync(callback, cql, "12345");
 ```
 
-`SessionManager` limits the number of asyn-jobs that can be executed at a time (default value is `100`, set via `SessionManager.setMaxAsyncJobs(int)` _before_ `SessionManager.init()` is called).
-If number of async-jobs exceeds this value, `ExceedMaxAsyncJobsException` is thrown. The query can be retries within the callback, like this:
-
-
-```java
-import com.google.common.util.concurrent.*;
-
-PreparedStatement stm = sm.prepareStatement("INSERT INTO my_keyspace.product (sku, description) VALUES (?, ?)");
-FutureCallback<ResultSet> future = new FutureCallback<ResultSet>() {
-    @Override
-    public void onSuccess(ResultSet result) {
-        for (Row row : result) {
-            System.out.println(row);
-        }
-    }
-    
-    @Override
-    public void onFailure(Throwable t) {
-        if ( t instanceof ExceedMaxAsyncJobsException ) {
-            this.sm.executeAsync(this, this.stm, this.sku, this.desc);
-        } else {
-            t.printStacktrace();
-        }
-    }
-    
-    private SessionManager sm;
-    private PreparedStatement stm;
-    private String sku, desc;
-    public new FutureCallback<ResultSet> init(SessionManager sm, PreparedStatement stm, String sku, String desc) {
-        this.sm = sm;
-        this.stm = stm;
-        this.sku = sku;
-        this.desc = desc;
-        return this;
-    }
-}.init(sm, stm, sku, desc);
-sm.executeAsync(future, stm, sku, desc);
-```
+> `SessionManager` limits the number of asyn-jobs that can be executed concurrently
+> (default value is `100`, it can be changed by calling `SessionManager.setMaxAsyncJobs(int)` _**before**_ `SessionManager.init()` is called).
+>
+> If number of async-jobs exceeds this value, `ExceedMaxAsyncJobsException` is passed to `Callback.onFailure()`.
 
 **Work with DataStax Enterprise Server**
 
-If you use Cassandra-only features, `SessionManager` can work with DSE Server without problem. However, when you need DSE-only feature (such as graph, analytics or search), you need to use `DseSessionManager`.
+If application uses Cassandra-only features, `CqlSession` can work with DSE Server.
+However, `DseSession` is required to work with DSE-features (such as graph, analytics or search).
+`ddth-cql-utils` offers `DseSessionManager` to manage `DseSession` instance. Its usage is similar to `SessionManager`:
 
-`DseSessionManager` can be a drop-in replacement for `SessionManager` (see [https://docs.datastax.com/en/developer/java-driver-dse/1.7/faq/](https://docs.datastax.com/en/developer/java-driver-dse/1.7/faq/)), with a few differences:
+```java
+DseSessionManager sm = new DseSessionManager();
 
-- `DseSessionManager.getCluster(...)` return `DseCluster` which is a sub-class of `Cluster`.
-- `DseSessionManager.getSession(...)` return `DseSession` which is a sub-class of `Session`.
-- DSE allows a user to connect as another user or role (["proxy authentication"](https://docs.datastax.com/en/developer/java-driver-dse/1.7/manual/auth/)). Two overload methods `getCluster(...)` and `getSession(...)` are introduced in `DseSessionManager` to support this feature.
+//// Optional: customize the SessionManager
+// limit maximun number of async-jobs
+sm.setMaxAsyncJobs(1024);
+// default values to connect to Cassandra cluster
+sm.setDefaultHostsAndPorts("host1:9042,host2,host3:19042").setDefaultKeyspace("test");
+// override some configurations
+sm.setConfigLoader(DseDriverConfigLoader.fromFile("my-dse-application.conf"));
 
+// remember to initialize the SessionManager
+sm.init(); 
 
-***`Cluster`'s default configurations setup by `SessionManager`***
+/*Obtain `DseSession` and use it*/
+// obtain a DseSession instance, specifying contact points and keyspace
+DseSession session = sm.getSession("host1:port1,host2,host3:port3", keyspace);
+// obtain a DseSession instance, using defaultHostsAndPorts and defaultKeyspace
+DseSession defaultSession = sm.getSession();
 
-- `maxSyncJobs`: 100
-- `reconnectionPolicy`: `new ExponentialReconnectionPolicy(1000, 10 * 1000)`
-- `poolingOptions`:
-  - `connectionsPerHost(REMOTE, 1, 1)`, `maxRequestsPerConnection(REMOTE, 1024)`, `newConnectionThreshold(REMOTE, 256)`
-  - `connectionsPerHost(LOCAL, 1, 2)`, `maxRequestsPerConnection(LOCAL, 16 * 1024)`, `newConnectionThreshold(LOCAL, 12 * 1024)`
-  - `heartbeatIntervalSeconds`: 10
-  - `poolTimeoutMillis`: 1000
-- `queryOptions`:
-  - `consistencyLevel`: LOCAL_ONE
-  - `serialConsistencyLevel`: LOCAL_SERIAL
-  - `fetchSize`: 1024
-  - `defaultIdempotence`: false
+/*
+DseSession instance is now ready to use.
+See Datastax Enterprise Java Driver (https://docs.datastax.com/en/developer/java-driver-dse/2.0/) for usage manual.
+*/
 
+/* Before application exists: cleanup */
+sm.close(); //or sm.destroy();
+```
 
-### Notes
-
-- DataStax's driver requires `Guava` with minumum version `16.0.1+`, `19.0+` is recommended for better performance
-- Initialize `SessionManager` by calling `SessionManager.init()` before use.
-- There is no need to close `Cluster` or `Session`:
-  - Use one `Cluster` instance per Cassandra physical cluster throughout application's life.
-  - Use one `Session` instance per keyspace throughout application's life. However, is it recommended to create just one `Session`
-    instance with no associated keyspace and use `keyspace_name.table_name` format in all queries.
-- `SessionManager` caches opened `Cluster`s and `Session`s. It is safe to call `SessionManager.getCluster(...)` and
-  `SessionManager.getSession(...)` multiple times (e.g. `SELECT count(*) FROM my_keyspace.my_tabble`).
-- If you use compression, include appropriate jar files in classpath. See: [https://docs.datastax.com/en/developer/java-driver/3.6/manual/compression/](https://docs.datastax.com/en/developer/java-driver/3.6/manual/compression/)
-
+> `DseSessionManager` extends `SessionManager` and can be used as a drop-in replacement, with a few differences:
+> - `DseSessionManager.getSession(...)` returns `DseSession` instead of `CqlSession`. Again, `DseSession` extends `CqlSession` and can be used as a drop-in replacement.
+> - Use `DseDriverConfigLoader.fromXXX(...)` to load configurations for `DseSessionManager.setConfigLoader(DriverConfigLoader)`.
 
 ## Credits
 
-- [Datastax](http://docs.datastax.com/en/developer/driver-matrix/doc/javaDrivers.html) is the underlying Cassandra library. 
+- [Datastax](https://docs.datastax.com/en/driver-matrix/doc/driver_matrix/javaDrivers.html) is the underlying Cassandra library. 
 
 
 ## License
 
-See LICENSE.txt for details. Copyright (c) 2014-2018 Thanh Ba Nguyen.
+See LICENSE.txt for details. Copyright (c) 2014-2019 Thanh Ba Nguyen.
 
 Third party libraries are distributed under their own licenses.
